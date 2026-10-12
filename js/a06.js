@@ -1,4 +1,89 @@
 'use strict';
+function onWriteErr(e, path, data) {
+  const c = e && e.code;
+  console.warn('Ascend: no se pudo guardar', path, e);
+  if (c === 'invalid_argument' || c === 'transform_error') {
+    if (S.canWrite === true) { S.statusHard = 'error'; if (path) dirty.delete(path); return; }
+    S.readonly = true; saver.pend.clear(); dirty.clear(); renderActive(); return;
+  }
+  if (c === 'not_granted') { S.readonly = true; saver.pend.clear(); dirty.clear(); renderActive(); return; }
+  if (c === 'quota_exceeded') { S.statusHard = 'quota'; return; }
+  if (c === 'revoked' || c === 'capability_disabled' || c === 'capability_removed') { S.statusHard = 'noaccess'; return; }
+  S.offline = true;
+  if (path && data !== undefined) {
+    if (!saver.pend.has(path)) saver.pend.set(path, data);
+    dirty.add(path);
+    clearTimeout(saver.timers.get(path));
+    saver.timers.set(path, setTimeout(() => saver.flush(path), 8000));
+  }
+}
+
+function putDoc(path, data) { saver.queue(path, data, 60); }
+async function delDoc(path) {
+  if (S.readonly) return;
+  saver.cancel(path);
+  deleting.add(path); S.inflight++; refreshStatus();
+  await storeReady;
+  for (let i = 0; i < 100 && saver.busy.has(path); i++) await wait(150); /* si se estaba guardando, borrar después */
+  let again = false;
+  try { await store.del(path); S.offline = false; }
+  catch (e) { if (e && e.code === 'unavailable') { again = true; S.offline = true; } else onWriteErr(e); }
+  finally { S.inflight--; if (!again) deleting.delete(path); refreshStatus(); }
+  if (again) setTimeout(() => { deleting.delete(path); delDoc(path); }, 8000);
+}
+
+function setStatus(s) { const el = $('#save'); if (!el) return; el.dataset.s = s; el.textContent = STATUS_TXT[s] || ''; }
+function refreshStatus() {
+  if (!store.kind) return setStatus('loading');
+  if (S.statusHard) return setStatus(S.statusHard);
+  if (S.offline) return setStatus('offline');
+  if (saver.pend.size || saver.busy.size || S.inflight > 0) return setStatus('saving');
+  if (S.readonly) return setStatus('readonly');
+  setStatus(store.kind === 'local' ? 'local' : 'saved');
+}
+
+/* ---------- datos derivados ---------- */
+function mergeSettings(d) {
+  const s = clone(DEFAULT_SETTINGS);
+  if (!d) return s;
+  if (Number(d.waterGoal) > 0) s.waterGoal = Number(d.waterGoal);
+  if (Number(d.sleepGoal) > 0) s.sleepGoal = Number(d.sleepGoal);
+  if (d.bedTarget) s.bedTarget = d.bedTarget;
+  if (d.wakeTarget) s.wakeTarget = d.wakeTarget;
+  if (d.slots) for (const k of SLOT_KEYS) if (d.slots[k]) s.slots[k] = Object.assign({}, s.slots[k], d.slots[k]);
+  if (d.nutri && typeof d.nutri === 'object') for (const k of NK) { const n = Number(d.nutri[k]); if (n > 0) s.nutri[k] = n; }
+  if (Number(d.stepGoal) > 0) s.stepGoal = Number(d.stepGoal);
+  return s;
+}
+function getDay(k) { return S.days[k] || { date: k }; }
+function mutDay(k, fn) {
+  if (S.readonly || !S.daysLoaded || S.fetching.has(k)) return false;
+  const d = clone(getDay(k));
+  d.date = k;
+  fn(d);
+  d.updatedAt = Date.now();
+  S.days[k] = d;
+  saver.queue('days/' + k, d);
+  return true;
+}
+function medOnDay(m, k) {
+  if (!m.active) return false;
+  const days = Array.isArray(m.days) ? m.days : ALL_DAYS;
+  return days.indexOf(parseKey(k).getDay()) >= 0;
+}
+function dosesFor(k) {
+  const out = [];
+  S.meds.forEach((m, i) => {
+    if (!medOnDay(m, k)) return;
+    (m.slots || []).forEach(sl => {
+      const slot = S.settings.slots[sl];
+      if (!slot) return;
+      out.push({ key: m.id + '__' + sl, med: m, slot: sl, hm: slot.time, order: i });
+    });
+  });
+  out.sort((a, b) => hm2min(a.hm) - hm2min(b.hm) || SLOT_KEYS.indexOf(a.slot) - SLOT_KEYS.indexOf(b.slot) || a.order - b.order);
+  return out;
+}
 function medSlotMins(m) {
   return (m.slots || []).filter(s => S.settings.slots[s]).map(s => hm2min(S.settings.slots[s].time)).sort((a, b) => a - b);
 }
@@ -298,33 +383,4 @@ function waterHTML(c) {
       '<button type="button" class="btn water" id="w-500" data-act="water" data-ml="500"' + dis + '>+500 ml</button>' +
       '<button type="button" class="btn quiet" id="w-undo" data-act="water-undo"' + (ml ? dis : ' disabled') + '>Deshacer</button>' +
     '</div></section>';
-}
-function boostHTML(c) {
-  const b = c.day.boost || {};
-  const list = habs().filter(h => habDueOn(h, c.k) || b[h.k]);
-  const n = list.filter(x => b[x.k]).length;
-  return '<section id="card-boost" class="card"><div class="card-h"><h2>Hábitos del día</h2>' + (list.length ? '<span class="meta">' + n + ' de ' + list.length + '</span>' : '') + '</div>' +
-    (list.length ? '<div class="chips">' + list.map(x => '<button type="button" class="chip" id="b-' + esc(x.k) + '" data-act="boost" data-k="' + esc(x.k) + '" aria-pressed="' + !!b[x.k] + '"' + ro() + '><span class="tick"></span><span>' + esc(x.label) +
-        (habFlex(x) ? '<small class="chip-s">' + esc(habProgText(x, c.k)) + '</small>' : '') + '</span></button>').join('') + '</div>' +
-      '<p class="hint">Marca lo que cumpliste. <button type="button" class="link inline" id="boost-go" data-go="habitos">Editar mis hábitos</button></p>'
-      : '<p class="empty">Hoy no tienes hábitos pendientes. <button type="button" class="link inline" id="boost-go" data-go="habitos">Ir a Hábitos</button></p>') + '</section>';
-}
-function sleepHTML(c) {
-  const s = c.day.sleep || {}, h = sleepHours(s), goal = Number(S.settings.sleepGoal) || 8.5;
-  let out = '<p class="hint">Anota a qué hora te dormiste anoche y a qué hora te levantaste.</p>';
-  if (h != null) {
-    const tone = h >= goal ? 'ok' : h >= goal - 1 ? 'warn' : 'crit';
-    const txt = h >= goal ? 'Meta cumplida' : h >= goal - 1 ? 'Cerca de la meta' : 'Por debajo de la meta';
-    const late = bedDelay(s.bed);
-    out = '<div class="sleep-out"><span class="big">' + fmtNum(h, 1) + '</span><span class="unit">horas</span><span class="pill ' + tone + '">' + txt + '</span></div>' +
-      (late > 30 ? '<p class="hint">Te dormiste ' + fmtDelay(late) + ' después de la meta de las ' + fmtHM(S.settings.bedTarget) + '.</p>' : '');
-  }
-  const dis = S.readonly || !S.daysLoaded ? ' disabled' : '';
-  return '<section id="card-sleep" class="card"><div class="card-h"><h2>Sueño de anoche</h2><span class="meta">Meta ' + fmtNum(goal, 1) + ' h</span></div>' +
-    '<div class="grid2">' +
-      '<div class="field"><label class="lbl" for="sleep-bed">Me dormí</label><input type="time" id="sleep-bed" data-sleep="bed" value="' + esc(s.bed || '') + '"' + dis + '></div>' +
-      '<div class="field"><label class="lbl" for="sleep-wake">Me levanté</label><input type="time" id="sleep-wake" data-sleep="wake" value="' + esc(s.wake || '') + '"' + dis + '></div>' +
-    '</div>' + out +
-    (!s.bed && !s.wake ? '<button type="button" class="btn sm ghost" id="sleep-fill" data-act="sleep-fill"' + dis + '>Usar la meta: ' + fmtHM(S.settings.bedTarget) + ' a ' + fmtHM(S.settings.wakeTarget) + '</button>' : '') +
-  '</section>';
 }

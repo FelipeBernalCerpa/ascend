@@ -1,4 +1,59 @@
 'use strict';
+async function runOffSearch() {
+  const st = S.sheet;
+  if (!st) return;
+  const q = String(st.q || '').trim();
+  if (q.length < 2) return;
+  st.off = { q, status: 'loading', items: [] };
+  refreshRes();
+  let next;
+  try { next = { q, status: 'ok', items: await offSearch(q) }; }
+  catch (e) { next = { q, status: 'error', items: [] }; }
+  if (S.sheet !== st || !st.off || st.off.q !== q) return;
+  st.off = next;
+  refreshRes();
+}
+async function pickOff(code) {
+  const st = S.sheet;
+  if (!st) return;
+  const cached = S.foods.find(x => x.id === 'off-' + code);
+  if (cached) { toQty(st, myFoodObj(cached)); return; }
+  toast('Cargando el producto…');
+  try {
+    const r = await offProduct(code);
+    if (S.sheet !== st) return;
+    if (r.food) { toQty(st, r.food); return; }
+    if (r.miss === 'nodata') { toast('Ese producto no tiene tabla nutricional. Créalo con los datos de la etiqueta.'); goStep('custom', { cf: { basis: 'g', code, name: r.name || '' } }); return; }
+    toast('No se encontró ese producto.');
+  } catch (e) { if (S.sheet === st) toast('No se pudo conectar con Open Food Facts.'); }
+}
+function setScanOut(msg, offerCreate) {
+  const el = $('#sh-scanout');
+  if (!el) return;
+  el.innerHTML = '<p class="hint">' + esc(msg) + '</p>' + (offerCreate ? '<button type="button" class="btn quiet" id="sh-code-new" data-act="sh-code-new">Crear alimento con este código</button>' : '');
+}
+async function lookupCode(raw) {
+  const st = S.sheet;
+  if (!st) return;
+  const code = String(raw || '').replace(/\D/g, '');
+  st.scan = st.scan || {};
+  st.scan.code = code;
+  if (!/^\d{8,14}$/.test(code)) { setScanOut('El código debe tener entre 8 y 14 números.'); return; }
+  const mine = S.foods.find(x => x.code === code);
+  if (mine) { toQty(st, myFoodObj(mine)); return; }
+  setScanOut('Buscando el producto…');
+  try {
+    const r = await offProduct(code);
+    if (S.sheet !== st || st.step !== 'scan') return;
+    if (r.food) { toQty(st, r.food); return; }
+    st.scan.name = r.name || '';
+    setScanOut(r.miss === 'nodata' ? 'El producto está en Open Food Facts pero sin tabla nutricional. Créalo con los datos de la etiqueta.' : 'No encontramos ese código. Puedes crear el alimento con los datos de la etiqueta.', true);
+  } catch (e) {
+    if (S.sheet !== st || st.step !== 'scan') return;
+    setScanOut('No se pudo conectar con Open Food Facts. Revisa tu internet o crea el alimento a mano.', true);
+  }
+}
+let scanStream = null, scanTimer = 0, zxReader = null, zxLoading = null, scanToken = 0;
 function setScanMsg(msg) {
   if (S.sheet && S.sheet.scan) S.sheet.scan.msg = msg;
   const el = $('#sh-scanmsg');
@@ -376,28 +431,4 @@ function measureHTML(kind) {
       '<div class="field"><label class="lbl" for="' + vId + '">' + title + ' (' + unit + ')</label><input type="text" inputmode="decimal" id="' + vId + '" data-draft value="' + esc(draft(vId, '')) + '"></div>' +
     '</div>' + soon + '<p class="form-err">' + esc(S.formErr[kind] || '') + '</p>' +
     '<button type="submit" class="btn" id="' + kind + '-save"' + ro() + '>' + (isW ? 'Guardar peso' : 'Guardar estatura') + '</button></form>' + hist + '</section>';
-}
-function statsRange(n) {
-  const tk = todayKey();
-  const r = { days: 0, doses: 0, taken: 0, sN: 0, sSum: 0, wN: 0, wSum: 0, bSum: 0, bDue: 0, ex: 0, intense: 0, fN: 0, nut: sumN([]), stN: 0, stSum: 0 };
-  for (let i = 0; i < n; i++) {
-    const k = addDays(tk, -i), d = S.days[k];
-    if (!d) continue;
-    r.days++;
-    const ds = dosesFor(k);
-    r.doses += ds.length;
-    r.taken += ds.filter(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken').length;
-    const h = sleepHours(d.sleep);
-    if (h != null) { r.sN++; r.sSum += h; }
-    const w = sum(d.water);
-    if (w > 0) { r.wN++; r.wSum += w; }
-    { const hs = habDayStats(k); r.bSum += hs.done; r.bDue += hs.due; }
-    if (dayHasEx(d)) r.ex++;
-    if (dayIntense(d)) r.intense++;
-    const nu = dayNutri(d);
-    if (nu.count) { r.fN++; for (const k of NK) r.nut[k] += nu[k]; }
-    const stp = Number(d.steps) || 0;
-    if (stp > 0) { r.stN++; r.stSum += stp; }
-  }
-  return r;
 }

@@ -1,4 +1,28 @@
 'use strict';
+function statsRange(n) {
+  const tk = todayKey();
+  const r = { days: 0, doses: 0, taken: 0, sN: 0, sSum: 0, wN: 0, wSum: 0, bSum: 0, bDue: 0, ex: 0, intense: 0, fN: 0, nut: sumN([]), stN: 0, stSum: 0 };
+  for (let i = 0; i < n; i++) {
+    const k = addDays(tk, -i), d = S.days[k];
+    if (!d) continue;
+    r.days++;
+    const ds = dosesFor(k);
+    r.doses += ds.length;
+    r.taken += ds.filter(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken').length;
+    const h = sleepHours(d.sleep);
+    if (h != null) { r.sN++; r.sSum += h; }
+    const w = sum(d.water);
+    if (w > 0) { r.wN++; r.wSum += w; }
+    { const hs = habDayStats(k); r.bSum += hs.done; r.bDue += hs.due; }
+    if (dayHasEx(d)) r.ex++;
+    if (dayIntense(d)) r.intense++;
+    const nu = dayNutri(d);
+    if (nu.count) { r.fN++; for (const k of NK) r.nut[k] += nu[k]; }
+    const stp = Number(d.steps) || 0;
+    if (stp > 0) { r.stN++; r.stSum += stp; }
+  }
+  return r;
+}
 function medStreak() {
   const tk = todayKey();
   let n = 0;

@@ -1,4 +1,41 @@
 'use strict';
+/* ---------- v4c: más bebidas y snacks (nombres propios y comunes) ----------
+   Valores por 100 ml (bebidas) o 100 g (sólidos): [kcal, prot, carb, azúcar, fibra, grasa, sat, sodio mg]. */
+FOODS.push(
+  /* 6 · bebidas */
+  FD('limonada_sa', 'Limonada natural sin azúcar', 6, [6, 0.1, 1.8, 0.5, 0.1, 0, 0, 1], [['vaso', 250]], 'l', 'limon sin azucar'),
+  FD('limonada_hierba', 'Limonada de hierbabuena', 6, [38, 0.2, 9.8, 9, 0.3, 0, 0, 2], [['vaso', 250]], 'al', 'menta'),
+  FD('monster', 'Monster Energy', 6, [47, 0, 11, 11, 0, 0, 0, 40], [['lata (473 ml)', 473], ['media lata', 237]], 'l', 'energetica energizante bebida'),
+  FD('red_bull', 'Red Bull', 6, [45, 0.4, 11, 11, 0, 0, 0, 40], [['lata (250 ml)', 250]], 'l', 'energetica energizante'),
+  FD('vive100', 'Vive 100', 6, [40, 0, 10, 10, 0, 0, 0, 30], [['botella (400 ml)', 400]], 'l', 'energetica energizante'),
+  FD('monster_zero', 'Monster o energética sin azúcar', 6, [3, 0, 0.6, 0, 0, 0, 0, 40], [['lata (473 ml)', 473]], 'l', 'energetica cero zero ultra'),
+  FD('pony_malta', 'Pony Malta', 6, [65, 0.8, 15, 13, 0, 0, 0, 15], [['botella (330 ml)', 330], ['lata (330 ml)', 330]], 'l', 'malta bavaria'),
+  FD('colombiana', 'Gaseosa Colombiana (kola)', 6, [46, 0, 11.5, 11.5, 0, 0, 0, 10], [['lata (355 ml)', 355], ['botella (400 ml)', 400]], 'l', 'kola postobon roman'),
+  FD('gaseosa_sabor', 'Gaseosa de naranja, uva o manzana', 6, [48, 0, 12, 12, 0, 0, 0, 15], [['lata (355 ml)', 355], ['vaso', 250]], 'l', 'manzana uva naranja postobon fanta'),
+  FD('sprite', 'Gaseosa lima-limón', 6, [40, 0, 10, 10, 0, 0, 0, 15], [['lata (355 ml)', 355]], 'l', 'sprite 7up seven up quatro lima limon'),
+  FD('agua_tonica', 'Agua tónica', 6, [34, 0, 8.8, 8.8, 0, 0, 0, 4], [['lata (330 ml)', 330]], 'l', 'tonica schweppes'),
+  FD('soda_gas', 'Agua con gas o soda (sin azúcar)', 6, [0, 0, 0, 0, 0, 0, 0, 5], [['botella (500 ml)', 500], ['vaso', 250]], 'l', 'club soda agua mineral con gas seltzer'),
+  FD('te_frio_sa', 'Té frío sin azúcar', 6, [1, 0, 0.3, 0, 0, 0, 0, 5], [['botella (500 ml)', 500]], 'l', 'fuze tea lipton sin azucar verde negro'),
+  FD('avena_bebida', 'Avena en bebida fría', 6, [62, 1.6, 11.5, 9, 0.5, 0.9, 0.4, 45], [['vaso', 250]], 'al', 'avena fria alpina'),
+  FD('cola_cereza', 'Gaseosa de cola sabor (cereza, vainilla)', 6, [44, 0, 11, 11, 0, 0, 0, 12], [['lata (355 ml)', 355]], 'l', 'cola cherry'),
+  FD('jugo_hit', 'Néctar o jugo de caja de fruta', 6, [50, 0.2, 12.3, 11, 0.2, 0, 0, 10], [['caja (200 ml)', 200], ['vaso', 250]], 'l', 'hit tutti frutti california del valle'),
+  FD('agua_saborizada_sa', 'Agua saborizada sin azúcar', 6, [1, 0, 0.3, 0, 0, 0, 0, 10], [['botella (500 ml)', 500]], 'l', 'cristal brisa sin azucar zero'),
+  FD('jugo_verde_sa', 'Jugo verde sin azúcar', 6, [30, 1.2, 6, 3.5, 1.2, 0.2, 0, 20], [['vaso', 250]], 'al', 'detox apio pepino'),
+  FD('gatorade', 'Bebida deportiva (Gatorade/Powerade)', 6, [24, 0, 6.1, 5.8, 0, 0, 0, 46], [['botella (500 ml)', 500]], 'l', 'gatorade powerade suerox hidratante'),
+  FD('cafe_frio', 'Café frío endulzado (frappé de lata)', 6, [60, 1.8, 10, 9, 0, 1.2, 0.8, 40], [['botella (250 ml)', 250]], 'al', 'iced coffee juan valdez starbucks'),
+  FD('soda_dieta', 'Gaseosa dietética o sin azúcar', 6, [1, 0, 0.2, 0, 0, 0, 0, 12], [['lata (355 ml)', 355]], 'l', 'coca cola zero light pepsi black sin azucar'),
+
+  /* 2 · frutas */
+  FD('mango_biche_solo', 'Mango biche en trozos', 2, [60, 0.8, 15, 9, 1.8, 0.4, 0.1, 2], [['porción', 150]], 'a', 'mango verde'),
+  FD('salpicon', 'Salpicón de frutas', 2, [60, 0.6, 15, 12, 1.5, 0.2, 0, 10], [['vaso', 250]], 'a', 'frutas picadas'),
+
+  /* 7 · dulces y otros */
+  FD('bombombum', 'Bon Bon Bum o chupeta', 7, [390, 0, 97, 70, 0, 0, 0, 10], [['unidad', 18]], '', 'colombina chupeta caramelo'),
+
+  /* 9 · paquetes y snacks */
+  FD('palomitas', 'Palomitas de maíz (crispetas)', 9, [387, 12, 78, 0.9, 14, 4.5, 0.6, 500], [['taza', 12], ['porción', 30]], 'a', 'crispetas popcorn maiz pira')
+);
+
 /* ---------- v4: más actividades (MET del Compendio de Actividades Físicas) y biblioteca de gimnasio ---------- */
 EX_CATS[0] = 'Gimnasio y fuerza';
 EX_CATS[3] = 'Flexibilidad y mente-cuerpo';
@@ -285,89 +322,3 @@ const saver = {
     for (const p of Array.from(this.pend.keys())) { clearTimeout(this.timers.get(p)); this.timers.delete(p); this.flush(p); }
   }
 };
-
-function onWriteErr(e, path, data) {
-  const c = e && e.code;
-  console.warn('Ascend: no se pudo guardar', path, e);
-  if (c === 'invalid_argument' || c === 'transform_error') {
-    if (S.canWrite === true) { S.statusHard = 'error'; if (path) dirty.delete(path); return; }
-    S.readonly = true; saver.pend.clear(); dirty.clear(); renderActive(); return;
-  }
-  if (c === 'not_granted') { S.readonly = true; saver.pend.clear(); dirty.clear(); renderActive(); return; }
-  if (c === 'quota_exceeded') { S.statusHard = 'quota'; return; }
-  if (c === 'revoked' || c === 'capability_disabled' || c === 'capability_removed') { S.statusHard = 'noaccess'; return; }
-  S.offline = true;
-  if (path && data !== undefined) {
-    if (!saver.pend.has(path)) saver.pend.set(path, data);
-    dirty.add(path);
-    clearTimeout(saver.timers.get(path));
-    saver.timers.set(path, setTimeout(() => saver.flush(path), 8000));
-  }
-}
-
-function putDoc(path, data) { saver.queue(path, data, 60); }
-async function delDoc(path) {
-  if (S.readonly) return;
-  saver.cancel(path);
-  deleting.add(path); S.inflight++; refreshStatus();
-  await storeReady;
-  for (let i = 0; i < 100 && saver.busy.has(path); i++) await wait(150); /* si se estaba guardando, borrar después */
-  let again = false;
-  try { await store.del(path); S.offline = false; }
-  catch (e) { if (e && e.code === 'unavailable') { again = true; S.offline = true; } else onWriteErr(e); }
-  finally { S.inflight--; if (!again) deleting.delete(path); refreshStatus(); }
-  if (again) setTimeout(() => { deleting.delete(path); delDoc(path); }, 8000);
-}
-
-function setStatus(s) { const el = $('#save'); if (!el) return; el.dataset.s = s; el.textContent = STATUS_TXT[s] || ''; }
-function refreshStatus() {
-  if (!store.kind) return setStatus('loading');
-  if (S.statusHard) return setStatus(S.statusHard);
-  if (S.offline) return setStatus('offline');
-  if (saver.pend.size || saver.busy.size || S.inflight > 0) return setStatus('saving');
-  if (S.readonly) return setStatus('readonly');
-  setStatus(store.kind === 'local' ? 'local' : 'saved');
-}
-
-/* ---------- datos derivados ---------- */
-function mergeSettings(d) {
-  const s = clone(DEFAULT_SETTINGS);
-  if (!d) return s;
-  if (Number(d.waterGoal) > 0) s.waterGoal = Number(d.waterGoal);
-  if (Number(d.sleepGoal) > 0) s.sleepGoal = Number(d.sleepGoal);
-  if (d.bedTarget) s.bedTarget = d.bedTarget;
-  if (d.wakeTarget) s.wakeTarget = d.wakeTarget;
-  if (d.slots) for (const k of SLOT_KEYS) if (d.slots[k]) s.slots[k] = Object.assign({}, s.slots[k], d.slots[k]);
-  if (d.nutri && typeof d.nutri === 'object') for (const k of NK) { const n = Number(d.nutri[k]); if (n > 0) s.nutri[k] = n; }
-  if (Number(d.stepGoal) > 0) s.stepGoal = Number(d.stepGoal);
-  return s;
-}
-function getDay(k) { return S.days[k] || { date: k }; }
-function mutDay(k, fn) {
-  if (S.readonly || !S.daysLoaded || S.fetching.has(k)) return false;
-  const d = clone(getDay(k));
-  d.date = k;
-  fn(d);
-  d.updatedAt = Date.now();
-  S.days[k] = d;
-  saver.queue('days/' + k, d);
-  return true;
-}
-function medOnDay(m, k) {
-  if (!m.active) return false;
-  const days = Array.isArray(m.days) ? m.days : ALL_DAYS;
-  return days.indexOf(parseKey(k).getDay()) >= 0;
-}
-function dosesFor(k) {
-  const out = [];
-  S.meds.forEach((m, i) => {
-    if (!medOnDay(m, k)) return;
-    (m.slots || []).forEach(sl => {
-      const slot = S.settings.slots[sl];
-      if (!slot) return;
-      out.push({ key: m.id + '__' + sl, med: m, slot: sl, hm: slot.time, order: i });
-    });
-  });
-  out.sort((a, b) => hm2min(a.hm) - hm2min(b.hm) || SLOT_KEYS.indexOf(a.slot) - SLOT_KEYS.indexOf(b.slot) || a.order - b.order);
-  return out;
-}

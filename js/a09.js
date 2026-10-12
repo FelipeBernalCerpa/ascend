@@ -1,4 +1,21 @@
 'use strict';
+function exPerH() { return energyFor(S.viewKey, getDay(S.viewKey)).perH; }
+function exResultsHTML(st) {
+  const q = norm(st.q || ''), qt = q ? q.split(' ') : [];
+  const perH = exPerH();
+  const list = EXERCISES.filter(x => !q || matchScore(x.name + ' ' + x.alias, q, qt) >= 0);
+  const btn = x => '<button type="button" class="fres" data-act="sh-expick" data-k="' + x.k + '"><span class="fres-n">' + esc(x.name) + '</span><span class="fres-m">' +
+    (perH ? '≈ ' + fmtInt(r10((x.met - 1) * perH)) + ' kcal por hora' : 'MET ' + fmtNum(x.met, 1, 1)) + (x.hi ? ' · intenso' : '') + '</span></button>';
+  let h = EX_CATS.map((c, i) => { const items = list.filter(x => x.cat === i); return items.length ? '<p class="sh-sec">' + c + '</p><div class="fres-list">' + items.map(btn).join('') + '</div>' : ''; }).join('');
+  if (!list.length) h = '<p class="empty">No está en la lista. Agrégalo como «Otro ejercicio».</p>';
+  return h + '<p class="sh-sec">¿No está?</p><div class="fres-list"><button type="button" class="fres" id="sh-exother" data-act="sh-exother"><span class="fres-n">Otro ejercicio</span><span class="fres-m">Escribe el nombre y elige la intensidad</span></button></div>';
+}
+function shExSearchHTML(st) {
+  return sheetTop('Agregar ejercicio') +
+    '<button type="button" class="gym-cta" id="sh-gym" data-act="gym-open"><span class="gym-cta-t">Entrenamiento de gimnasio</span><span class="gym-cta-s">Ejercicios con series, repeticiones y kilos' + (S.routines.length ? ' · ' + plural(S.routines.length, 'rutina guardada', 'rutinas guardadas') : '') + '</span></button>' +
+    '<form data-form="sh-search" role="search" novalidate><label class="lbl sr" for="sh-q">Buscar ejercicio</label><input type="search" id="sh-q" data-sh="q" placeholder="Busca: fútbol, salsa, natación, pesas…" value="' + esc(st.q || '') + '" autocomplete="off" enterkeyhint="search"></form>' +
+    '<div id="sh-res">' + exResultsHTML(st) + '</div>';
+}
 function exPrevText(met, min) {
   const perH = exPerH(), m = parseInt(min, 10);
   if (!perH) return 'Registra tu peso en Progreso para estimar las calorías.';
@@ -337,58 +354,3 @@ async function offSearch(q) {
     return { code: String(h.code), name: offName(h) || 'Producto ' + h.code, brand: offBrand(h), qty: String(h.quantity || '').slice(0, 30), kcal: isFinite(k) && k >= 0 ? k : null };
   });
 }
-async function runOffSearch() {
-  const st = S.sheet;
-  if (!st) return;
-  const q = String(st.q || '').trim();
-  if (q.length < 2) return;
-  st.off = { q, status: 'loading', items: [] };
-  refreshRes();
-  let next;
-  try { next = { q, status: 'ok', items: await offSearch(q) }; }
-  catch (e) { next = { q, status: 'error', items: [] }; }
-  if (S.sheet !== st || !st.off || st.off.q !== q) return;
-  st.off = next;
-  refreshRes();
-}
-async function pickOff(code) {
-  const st = S.sheet;
-  if (!st) return;
-  const cached = S.foods.find(x => x.id === 'off-' + code);
-  if (cached) { toQty(st, myFoodObj(cached)); return; }
-  toast('Cargando el producto…');
-  try {
-    const r = await offProduct(code);
-    if (S.sheet !== st) return;
-    if (r.food) { toQty(st, r.food); return; }
-    if (r.miss === 'nodata') { toast('Ese producto no tiene tabla nutricional. Créalo con los datos de la etiqueta.'); goStep('custom', { cf: { basis: 'g', code, name: r.name || '' } }); return; }
-    toast('No se encontró ese producto.');
-  } catch (e) { if (S.sheet === st) toast('No se pudo conectar con Open Food Facts.'); }
-}
-function setScanOut(msg, offerCreate) {
-  const el = $('#sh-scanout');
-  if (!el) return;
-  el.innerHTML = '<p class="hint">' + esc(msg) + '</p>' + (offerCreate ? '<button type="button" class="btn quiet" id="sh-code-new" data-act="sh-code-new">Crear alimento con este código</button>' : '');
-}
-async function lookupCode(raw) {
-  const st = S.sheet;
-  if (!st) return;
-  const code = String(raw || '').replace(/\D/g, '');
-  st.scan = st.scan || {};
-  st.scan.code = code;
-  if (!/^\d{8,14}$/.test(code)) { setScanOut('El código debe tener entre 8 y 14 números.'); return; }
-  const mine = S.foods.find(x => x.code === code);
-  if (mine) { toQty(st, myFoodObj(mine)); return; }
-  setScanOut('Buscando el producto…');
-  try {
-    const r = await offProduct(code);
-    if (S.sheet !== st || st.step !== 'scan') return;
-    if (r.food) { toQty(st, r.food); return; }
-    st.scan.name = r.name || '';
-    setScanOut(r.miss === 'nodata' ? 'El producto está en Open Food Facts pero sin tabla nutricional. Créalo con los datos de la etiqueta.' : 'No encontramos ese código. Puedes crear el alimento con los datos de la etiqueta.', true);
-  } catch (e) {
-    if (S.sheet !== st || st.step !== 'scan') return;
-    setScanOut('No se pudo conectar con Open Food Facts. Revisa tu internet o crea el alimento a mano.', true);
-  }
-}
-let scanStream = null, scanTimer = 0, zxReader = null, zxLoading = null, scanToken = 0;

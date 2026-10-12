@@ -1,4 +1,34 @@
 'use strict';
+function refreshEnergy() {
+  const c = hoyCtx();
+  const en = energyFor(c.k, c.day);
+  const so = $('#steps-out'); if (so) so.innerHTML = stepsOutHTML(en);
+  const eb = $('#energy-box'); if (eb) eb.innerHTML = energyBoxHTML(c, en);
+  const m = $('#card-meters'); if (m) replaceEl(m, metersHTML(c));
+}
+
+/* ---------- PROGRESO: nutrición día a día ---------- */
+function nutri7HTML() {
+  if (!S.daysLoaded) return '';
+  const tk = todayKey(), rows = [];
+  let any = false;
+  for (let i = 0; i < 7; i++) {
+    const k = addDays(tk, -i), d = S.days[k], nu = dayNutri(d);
+    const en = d ? energyFor(k, d) : null;
+    if (nu.count) any = true;
+    const dd = parseKey(k);
+    const lbl = i === 0 ? 'Hoy' : i === 1 ? 'Ayer' : WD[dd.getDay()].slice(0, 3) + ' ' + dd.getDate();
+    rows.push('<tr><td><button type="button" class="link inline" id="n7-' + k + '" data-act="goto-day" data-day="' + k + '">' + lbl + '</button></td>' +
+      (nu.count ? '<td>' + fmtInt(nu.kcal) + '</td><td>' + fmtNut('p', nu.p) + '</td><td>' + fmtNut('f', nu.f) + '</td><td>' + fmtInt(nu.na) + '</td>'
+        : '<td>—</td><td>—</td><td>—</td><td>—</td>') +
+      '<td>' + (en && en.total != null ? fmtInt(r10(en.total)) : '—') + '</td></tr>');
+  }
+  return '<section class="card" id="card-n7"><div class="card-h"><h2>Nutrición día a día</h2><span class="meta">Últimos 7 días</span></div>' +
+    (any ? '' : '<p class="empty">Registra lo que comes en Hoy y aquí verás tus totales de cada día.</p>') +
+    '<div class="tbl-wrap"><table class="tbl stats n7"><thead><tr><th>Día</th><th>kcal</th><th>Prot.</th><th>Grasa</th><th>Sodio</th><th>Quem.</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div>' +
+    '<p class="hint">Proteína y grasa en gramos, sodio en mg. «Quem.» son las calorías quemadas estimadas. Toca un día para ver todo lo que comiste, con carbohidratos, azúcar, fibra y saturadas.</p></section>';
+}
+
 /* ---------- AJUSTES: perfil, metas de nutrición y alimentos propios ---------- */
 function saveProfile() { if (S.loaded.profile) saver.queue('config/profile', clone(S.profile), 300); }
 function profileCardHTML() {
@@ -187,21 +217,4 @@ function shRecHTML(st) {
     '<ul class="rec-items">' + items.map(e => '<li>' + esc(e.name) + ' <small>' + esc(qtyText(e.amt, e.u, e.g, e.l)) + '</small></li>').join('') + '</ul>' +
     '<form class="sh-form" data-form="sh-rec" novalidate><div class="field"><label class="lbl" for="sh-recname">Nombre</label><input type="text" id="sh-recname" data-sh="recname" maxlength="60" autocomplete="off" value="' + esc(st.recname || '') + '"></div>' +
     '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p><button type="submit" class="btn" id="sh-recsave"' + (S.readonly || !S.loaded.recipes ? ' disabled' : '') + '>Guardar</button></form>';
-}
-function exPerH() { return energyFor(S.viewKey, getDay(S.viewKey)).perH; }
-function exResultsHTML(st) {
-  const q = norm(st.q || ''), qt = q ? q.split(' ') : [];
-  const perH = exPerH();
-  const list = EXERCISES.filter(x => !q || matchScore(x.name + ' ' + x.alias, q, qt) >= 0);
-  const btn = x => '<button type="button" class="fres" data-act="sh-expick" data-k="' + x.k + '"><span class="fres-n">' + esc(x.name) + '</span><span class="fres-m">' +
-    (perH ? '≈ ' + fmtInt(r10((x.met - 1) * perH)) + ' kcal por hora' : 'MET ' + fmtNum(x.met, 1, 1)) + (x.hi ? ' · intenso' : '') + '</span></button>';
-  let h = EX_CATS.map((c, i) => { const items = list.filter(x => x.cat === i); return items.length ? '<p class="sh-sec">' + c + '</p><div class="fres-list">' + items.map(btn).join('') + '</div>' : ''; }).join('');
-  if (!list.length) h = '<p class="empty">No está en la lista. Agrégalo como «Otro ejercicio».</p>';
-  return h + '<p class="sh-sec">¿No está?</p><div class="fres-list"><button type="button" class="fres" id="sh-exother" data-act="sh-exother"><span class="fres-n">Otro ejercicio</span><span class="fres-m">Escribe el nombre y elige la intensidad</span></button></div>';
-}
-function shExSearchHTML(st) {
-  return sheetTop('Agregar ejercicio') +
-    '<button type="button" class="gym-cta" id="sh-gym" data-act="gym-open"><span class="gym-cta-t">Entrenamiento de gimnasio</span><span class="gym-cta-s">Ejercicios con series, repeticiones y kilos' + (S.routines.length ? ' · ' + plural(S.routines.length, 'rutina guardada', 'rutinas guardadas') : '') + '</span></button>' +
-    '<form data-form="sh-search" role="search" novalidate><label class="lbl sr" for="sh-q">Buscar ejercicio</label><input type="search" id="sh-q" data-sh="q" placeholder="Busca: fútbol, salsa, natación, pesas…" value="' + esc(st.q || '') + '" autocomplete="off" enterkeyhint="search"></form>' +
-    '<div id="sh-res">' + exResultsHTML(st) + '</div>';
 }

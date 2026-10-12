@@ -1,4 +1,33 @@
 'use strict';
+function boostHTML(c) {
+  const b = c.day.boost || {};
+  const list = habs().filter(h => habDueOn(h, c.k) || b[h.k]);
+  const n = list.filter(x => b[x.k]).length;
+  return '<section id="card-boost" class="card"><div class="card-h"><h2>Hábitos del día</h2>' + (list.length ? '<span class="meta">' + n + ' de ' + list.length + '</span>' : '') + '</div>' +
+    (list.length ? '<div class="chips">' + list.map(x => '<button type="button" class="chip" id="b-' + esc(x.k) + '" data-act="boost" data-k="' + esc(x.k) + '" aria-pressed="' + !!b[x.k] + '"' + ro() + '><span class="tick"></span><span>' + esc(x.label) +
+        (habFlex(x) ? '<small class="chip-s">' + esc(habProgText(x, c.k)) + '</small>' : '') + '</span></button>').join('') + '</div>' +
+      '<p class="hint">Marca lo que cumpliste. <button type="button" class="link inline" id="boost-go" data-go="habitos">Editar mis hábitos</button></p>'
+      : '<p class="empty">Hoy no tienes hábitos pendientes. <button type="button" class="link inline" id="boost-go" data-go="habitos">Ir a Hábitos</button></p>') + '</section>';
+}
+function sleepHTML(c) {
+  const s = c.day.sleep || {}, h = sleepHours(s), goal = Number(S.settings.sleepGoal) || 8.5;
+  let out = '<p class="hint">Anota a qué hora te dormiste anoche y a qué hora te levantaste.</p>';
+  if (h != null) {
+    const tone = h >= goal ? 'ok' : h >= goal - 1 ? 'warn' : 'crit';
+    const txt = h >= goal ? 'Meta cumplida' : h >= goal - 1 ? 'Cerca de la meta' : 'Por debajo de la meta';
+    const late = bedDelay(s.bed);
+    out = '<div class="sleep-out"><span class="big">' + fmtNum(h, 1) + '</span><span class="unit">horas</span><span class="pill ' + tone + '">' + txt + '</span></div>' +
+      (late > 30 ? '<p class="hint">Te dormiste ' + fmtDelay(late) + ' después de la meta de las ' + fmtHM(S.settings.bedTarget) + '.</p>' : '');
+  }
+  const dis = S.readonly || !S.daysLoaded ? ' disabled' : '';
+  return '<section id="card-sleep" class="card"><div class="card-h"><h2>Sueño de anoche</h2><span class="meta">Meta ' + fmtNum(goal, 1) + ' h</span></div>' +
+    '<div class="grid2">' +
+      '<div class="field"><label class="lbl" for="sleep-bed">Me dormí</label><input type="time" id="sleep-bed" data-sleep="bed" value="' + esc(s.bed || '') + '"' + dis + '></div>' +
+      '<div class="field"><label class="lbl" for="sleep-wake">Me levanté</label><input type="time" id="sleep-wake" data-sleep="wake" value="' + esc(s.wake || '') + '"' + dis + '></div>' +
+    '</div>' + out +
+    (!s.bed && !s.wake ? '<button type="button" class="btn sm ghost" id="sleep-fill" data-act="sleep-fill"' + dis + '>Usar la meta: ' + fmtHM(S.settings.bedTarget) + ' a ' + fmtHM(S.settings.wakeTarget) + '</button>' : '') +
+  '</section>';
+}
 function feelHTML(c) {
   const seg = (f, label) => {
     const v = c.day[f];
@@ -316,33 +345,4 @@ function actHTML(c) {
     '<div class="row act-btns"><button type="button" class="btn sm add" id="act-add" data-act="act-add"' + dis + '>Agregar ejercicio</button><button type="button" class="btn sm ghost" id="gym-add" data-act="gym-open"' + dis + '>Gimnasio</button></div>' + legacy +
     (intense >= 4 && (profileGoal() === 'subir' || profileGoal() === 'musculo') ? '<p class="hint warn-t">Llevas ' + intense + ' días de cardio intenso en la última semana. Si buscas subir de peso o ganar músculo, aflójale o come más esos días.</p>' : '') +
     '<div id="energy-box">' + energyBoxHTML(c, en) + '</div></section>';
-}
-function refreshEnergy() {
-  const c = hoyCtx();
-  const en = energyFor(c.k, c.day);
-  const so = $('#steps-out'); if (so) so.innerHTML = stepsOutHTML(en);
-  const eb = $('#energy-box'); if (eb) eb.innerHTML = energyBoxHTML(c, en);
-  const m = $('#card-meters'); if (m) replaceEl(m, metersHTML(c));
-}
-
-/* ---------- PROGRESO: nutrición día a día ---------- */
-function nutri7HTML() {
-  if (!S.daysLoaded) return '';
-  const tk = todayKey(), rows = [];
-  let any = false;
-  for (let i = 0; i < 7; i++) {
-    const k = addDays(tk, -i), d = S.days[k], nu = dayNutri(d);
-    const en = d ? energyFor(k, d) : null;
-    if (nu.count) any = true;
-    const dd = parseKey(k);
-    const lbl = i === 0 ? 'Hoy' : i === 1 ? 'Ayer' : WD[dd.getDay()].slice(0, 3) + ' ' + dd.getDate();
-    rows.push('<tr><td><button type="button" class="link inline" id="n7-' + k + '" data-act="goto-day" data-day="' + k + '">' + lbl + '</button></td>' +
-      (nu.count ? '<td>' + fmtInt(nu.kcal) + '</td><td>' + fmtNut('p', nu.p) + '</td><td>' + fmtNut('f', nu.f) + '</td><td>' + fmtInt(nu.na) + '</td>'
-        : '<td>—</td><td>—</td><td>—</td><td>—</td>') +
-      '<td>' + (en && en.total != null ? fmtInt(r10(en.total)) : '—') + '</td></tr>');
-  }
-  return '<section class="card" id="card-n7"><div class="card-h"><h2>Nutrición día a día</h2><span class="meta">Últimos 7 días</span></div>' +
-    (any ? '' : '<p class="empty">Registra lo que comes en Hoy y aquí verás tus totales de cada día.</p>') +
-    '<div class="tbl-wrap"><table class="tbl stats n7"><thead><tr><th>Día</th><th>kcal</th><th>Prot.</th><th>Grasa</th><th>Sodio</th><th>Quem.</th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div>' +
-    '<p class="hint">Proteína y grasa en gramos, sodio en mg. «Quem.» son las calorías quemadas estimadas. Toca un día para ver todo lo que comiste, con carbohidratos, azúcar, fibra y saturadas.</p></section>';
 }
