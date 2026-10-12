@@ -1,0 +1,128 @@
+{
+ "cleanUrls": true,
+ "trailingSlash": false,
+ "headers": [
+  {
+   "source": "/(.*)",
+   "headers": [
+    {
+     "key": "Content-Security-Policy",
+     "value": "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' https://jsncipfjrsuvvrctugax.supabase.co https://world.openfoodfacts.org https://search.openfoodfacts.org; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+    },
+    {
+     "key": "Strict-Transport-Security",
+     "value": "max-age=63072000; includeSubDomains; preload"
+    },
+    {
+     "key": "X-Content-Type-Options",
+     "value": "nosniff"
+    },
+    {
+     "key": "Referrer-Policy",
+     "value": "no-referrer"
+    },
+    {
+     "key": "Permissions-Policy",
+     "value": "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), serial=(), hid=(), midi=(), accelerometer=(), gyroscope=(), magnetometer=(), display-capture=(), idle-detection=(), screen-wake-lock=(), xr-spatial-tracking=(), browsing-topics=()"
+    },
+    {
+     "key": "Cross-Origin-Opener-Policy",
+     "value": "same-origin"
+    },
+    {
+     "key": "Cross-Origin-Resource-Policy",
+     "value": "same-origin"
+    },
+    {
+     "key": "X-Frame-Options",
+     "value": "DENY"
+    },
+    {
+     "key": "X-DNS-Prefetch-Control",
+     "value": "off"
+    },
+    {
+     "key": "X-Permitted-Cross-Domain-Policies",
+     "value": "none"
+    }
+   ]
+  },
+  {
+   "source": "/",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "no-store"
+    }
+   ]
+  },
+  {
+   "source": "/index.html",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "no-store"
+    }
+   ]
+  },
+  {
+   "source": "/config.js",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "no-store"
+    }
+   ]
+  },
+  {
+   "source": "/privacidad",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "no-cache"
+    }
+   ]
+  },
+  {
+   "source": "/app.css",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "no-cache"
+    }
+   ]
+  },
+  {
+   "source": "/js/(.*)",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "no-cache"
+    }
+   ]
+  },
+  {
+   "source": "/fonts/(.*)",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "public, max-age=31536000, immutable"
+    }
+   ]
+  },
+  {
+   "source": "/vendor/(.*)",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "public, max-age=31536000, immutable"
+    }
+   ]
+  }
+ ],
+ "functions": {
+  "api/chat.js": {
+   "maxDuration": 30
+  }
+ }
+}

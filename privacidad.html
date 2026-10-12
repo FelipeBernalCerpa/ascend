@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Privacidad · Ascend</title>
+<meta name="description" content="Qué datos guarda Ascend, dónde, con qué cifrado, quién puede verlos y cómo descargarlos o borrarlos.">
+<meta name="robots" content="index,follow">
+<meta name="theme-color" content="#EDF1EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1311" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="/favicon.svg">
+<link rel="stylesheet" href="/app.css">
+<style>
+  body{padding:0 16px calc(40px + env(safe-area-inset-bottom,0px))}
+  .doc{max-width:680px;margin:0 auto;padding-top:calc(20px + env(safe-area-inset-top,0px))}
+  .doc h1{font-family:var(--f-display);font-stretch:120%;font-weight:820;font-size:28px;line-height:1.1;margin:0 0 6px}
+  .doc h2{font-family:var(--f-display);font-stretch:112%;font-weight:760;font-size:19px;margin:28px 0 8px}
+  .doc h3{font-size:15px;font-weight:750;margin:18px 0 6px}
+  .doc p,.doc li{font-size:15px;line-height:1.55;max-width:66ch}
+  .doc ul{padding-left:20px;display:grid;gap:7px;margin:8px 0}
+  .doc .upd{font-family:var(--f-mono);font-size:12.5px;color:var(--muted);margin:0 0 18px}
+  .doc table{width:100%;border-collapse:collapse;font-size:14px;margin:10px 0}
+  .doc th,.doc td{text-align:left;padding:8px 10px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+  .doc th{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:750}
+  .doc .box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:14px 16px;margin:16px 0}
+  .doc .box p:last-child{margin-bottom:0}
+  .doc a{color:var(--accent);font-weight:600}
+  .doc .back{display:inline-block;margin:26px 0 0}
+</style>
+</head>
+<body>
+<main class="doc">
+
+<h1>Privacidad y uso de tus datos</h1>
+<p class="upd">Versión 2026-10-05 · Ascend</p>
+
+<p>Ascend es una app para registrar comida, calorías, ejercicio, agua, sueño, medicamentos, exámenes, hábitos y recordatorios. Esta página explica, sin rodeos, qué se guarda, dónde, con qué cifrado, quién puede verlo y cómo sacarlo o borrarlo.</p>
+
+<div class="box">
+<p><strong>Lo esencial:</strong> tus registros son tuyos. Viajan cifrados y se guardan cifrados. Solo tu cuenta puede leerlos. Puedes activar el cifrado de extremo a extremo para que ni los servidores puedan leerlos. No vendemos datos, no hay publicidad y no hay cookies de seguimiento. La IA es opcional y no se usa sin tu permiso explícito.</p>
+</div>
+
+<h2>1. Qué datos se guardan</h2>
+<ul>
+  <li><strong>Tu cuenta:</strong> correo y una contraseña que se guarda como hash (nunca en claro).</li>
+  <li><strong>Datos de salud que tú escribes:</strong> comidas y sus nutrientes, peso, estatura, medidas, exámenes de laboratorio, medicamentos y sus horarios, agua, sueño, pasos, ejercicio, ánimo y energía, hábitos, recordatorios y notas. También la edad, el sexo, el objetivo, la actividad, las restricciones alimentarias y las condiciones de salud que registres, porque de ahí salen tus metas.</li>
+  <li><strong>Ajustes de la app:</strong> tus metas, tu tema claro u oscuro, el tiempo de cierre por inactividad y si diste permiso a la IA.</li>
+</ul>
+<p>No se recoge tu ubicación, no se leen tus contactos, no hay perfilado publicitario y no hay seguimiento entre sitios. La cámara se usa solo cuando tú abres el escáner de códigos de barras, y las imágenes se procesan en tu dispositivo: no se suben ni se guardan.</p>
+
+<h2>2. Para qué se usan</h2>
+<p>Únicamente para que la app funcione: mostrar tus registros, calcular tus metas y totales, avisarte de tus medicamentos y recordatorios, y —solo si lo pides— darte un análisis con IA. No se usan para entrenar modelos de inteligencia artificial, ni para publicidad, ni se comparten con anunciantes.</p>
+
+<h2>3. Cifrado</h2>
+<h3>Siempre activo</h3>
+<ul>
+  <li><strong>En tránsito:</strong> HTTPS con TLS en todas las conexiones. El servidor exige HTTPS (HSTS), así que el navegador nunca intenta una conexión sin cifrar.</li>
+  <li><strong>En reposo:</strong> la base de datos y sus copias de respaldo se guardan cifradas con AES-256 en la infraestructura de Supabase.</li>
+  <li><strong>Aislamiento por cuenta:</strong> reglas a nivel de fila en la base de datos. Cada consulta solo puede devolver filas cuyo dueño es la cuenta que pregunta; no depende de que la app pida bien los datos.</li>
+</ul>
+<h3>Opcional: cifrado de extremo a extremo</h3>
+<p>En <em>Ajustes → Seguridad</em> puedes activarlo. Si lo haces, tus registros se cifran y descifran dentro de tu dispositivo con AES-256-GCM. La llave nace de una frase secreta que solo tú conoces, derivada con PBKDF2-SHA256 y 600.000 iteraciones, y cada registro está atado a su ruta, de modo que un registro no se puede hacer pasar por otro. Al servidor solo llega texto cifrado: ni Supabase, ni quien administre la app, ni nadie con acceso a la base de datos puede leer tus registros.</p>
+<p>El precio de esa garantía: <strong>si olvidas la frase y pierdes el código de recuperación, los datos no se pueden recuperar.</strong> Nadie tiene una copia de la llave. Al activarlo se te entrega un código de recuperación de 32 caracteres para guardar en un lugar seguro.</p>
+
+<h2>4. Dónde están y quién los procesa</h2>
+<table>
+  <tr><th>Proveedor</th><th>Para qué</th><th>Qué recibe</th></tr>
+  <tr><td>Supabase</td><td>Base de datos y cuentas</td><td>Tu correo y tus registros (cifrados en reposo; ilegibles si activas el cifrado de extremo a extremo)</td></tr>
+  <tr><td>Vercel</td><td>Servir la app</td><td>Datos técnicos de la conexión, como la IP y el navegador, en los registros del servidor</td></tr>
+  <tr><td>Anthropic (Claude)</td><td>Asistente y análisis con IA</td><td><strong>Solo con tu permiso:</strong> tu mensaje y un resumen de tu plan y tus registros del periodo analizado</td></tr>
+  <tr><td>Open Food Facts</td><td>Buscar productos por código de barras</td><td>El código de barras que escaneas. No se envía nada de tu cuenta</td></tr>
+  <tr><td>jsDelivr</td><td>Librería del escáner, solo en navegadores que la necesitan</td><td>La IP, al descargar ese archivo. No se envía nada de tu cuenta</td></tr>
+</table>
+<p>Estos proveedores están en Estados Unidos y en la Unión Europea, así que tus datos pueden tratarse fuera de tu país. Ninguno recibe tus datos para sus propios fines: los procesan por encargo, para que la app funcione.</p>
+
+<h2>5. La IA es opcional</h2>
+<p>El asistente y los análisis no se usan solos. La primera vez que los usas, la app te pide permiso explícito y te dice exactamente qué se enviará. Puedes retirar el permiso cuando quieras en <em>Ajustes → Seguridad</em>, y desde ese momento no se envía nada más. Si tienes el cifrado de extremo a extremo activo y usas la IA, el resumen que se envía sale descifrado de tu dispositivo: es el único caso en que esos datos salen en claro, y solo porque tú lo autorizaste.</p>
+<p>La IA puede equivocarse. No es tu médico ni tu nutricionista y no reemplaza ningún tratamiento.</p>
+
+<h2>6. Cuánto tiempo se guardan</h2>
+<p>Mientras tengas la cuenta. Tus registros no caducan ni se borran solos, porque un historial de salud sirve justamente por ser largo. Cuando eliminas la cuenta, tus registros se borran de la base de datos de inmediato y desaparecen de las copias de respaldo en un plazo máximo de 30 días, cuando esas copias rotan.</p>
+
+<h2>7. Tus derechos</h2>
+<p>Puedes ejercer estos derechos tú mismo, desde la app, sin pedirle permiso a nadie:</p>
+<ul>
+  <li><strong>Ver y corregir:</strong> todo lo que ves en la app es editable.</li>
+  <li><strong>Descargar (portabilidad):</strong> <em>Ajustes → Mis datos → Descargar mis datos</em> entrega un archivo JSON con todo, ya descifrado.</li>
+  <li><strong>Borrar:</strong> puedes borrar registros uno por uno, o eliminar la cuenta completa en <em>Ajustes → Seguridad → Eliminar mi cuenta</em>. Es definitivo.</li>
+  <li><strong>Retirar el consentimiento:</strong> el permiso de la IA se quita en <em>Ajustes → Seguridad</em>.</li>
+  <li><strong>Cerrar sesión en todos los dispositivos:</strong> también en <em>Ajustes → Seguridad</em>.</li>
+</ul>
+<p>Si vives en la Unión Europea, el Reino Unido, Brasil, Colombia o cualquier país con una ley de protección de datos, estos derechos te corresponden por ley y la app está hecha para que los uses sin intermediarios. Si necesitas algo que la app no te permita hacer solo, podrás escribir a la dirección de contacto que se publicará aquí antes de que Ascend abra registros al público.</p>
+
+<h2>8. Menores de edad</h2>
+<p>Ascend trata datos de salud, que la ley considera especialmente sensibles. Si tienes menos de 18 años, úsala con permiso y conocimiento de tu mamá, papá o acudiente. Según el país, la edad mínima para dar consentimiento por tu cuenta cambia (en la Unión Europea va de 13 a 16 años según el Estado; en Estados Unidos son 13). Si eres madre, padre o acudiente y quieres que se borren los datos de un menor, puedes hacerlo desde la propia app eliminando la cuenta.</p>
+
+<h2>9. Seguridad de la cuenta</h2>
+<ul>
+  <li>Contraseñas de al menos 10 caracteres, comparadas contra listas de contraseñas comunes y filtradas.</li>
+  <li>Verificación en dos pasos (TOTP) opcional, con aplicaciones como Google Authenticator o Aegis.</li>
+  <li>Cierre de sesión automático tras un tiempo sin uso, configurable.</li>
+  <li>Todo el código y las fuentes salen del propio dominio, con una política de seguridad de contenido estricta que no permite ejecutar nada más. La única excepción es la librería del escáner de códigos de barras, que en los navegadores que la necesitan (por ejemplo Safari en iPhone) se descarga de jsDelivr anclada a un hash: si ese archivo cambiara un solo byte, el navegador se niega a ejecutarlo.</li>
+  <li>La clave de la IA vive solo en el servidor; el navegador nunca la ve.</li>
+</ul>
+<p>Ningún sistema es invulnerable. Si encuentras un problema de seguridad, repórtalo en vez de usarlo: se agradece y se corrige.</p>
+
+<h2>10. Cambios</h2>
+<p>Si esta política cambia en algo que te afecte, la app te lo mostrará y volverá a pedirte el consentimiento que haga falta. La versión aparece arriba, con su fecha.</p>
+
+<a class="back" href="/">← Volver a Ascend</a>
+</main>
+</body>
+</html>

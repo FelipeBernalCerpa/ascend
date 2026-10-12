@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Ascend</title>
+<meta name="description" content="Ascend: tu plan diario de comida y calorías, ejercicio, hábitos, recordatorios, medicamentos y sueño, guardado en tu cuenta.">
+<meta name="theme-color" content="#EDF1EE" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1311" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Ascend">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%231B5A43'/%3E%3Cpath d='M16 44l16-16 16 16' fill='none' stroke='%23fff' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M22 32l10-10 10 10' fill='none' stroke='%2395D5B5' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<script src="/config.js"></script>
+<script src="/vendor/supabase-2.117.2.js"></script>
+<link rel="stylesheet" href="/app.css">
+<style id="v5">
+/* ---------- v5: seguridad y privacidad ---------- */
+.sec-rows{display:grid}
+.sec-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:11px 0;border-top:1px solid var(--line)}
+.sec-row:first-child{border-top:0;padding-top:2px}
+.sec-info{display:grid;gap:2px;min-width:0}
+.sec-t{font-weight:700;line-height:1.3}
+.sec-s{font-size:12.5px;color:var(--muted);line-height:1.35}
+.sec-b{display:flex;justify-content:flex-end}
+.sec-sel{width:auto;min-width:8.5rem}
+@media (max-width:420px){.sec-row{grid-template-columns:minmax(0,1fr)}.sec-b{justify-content:flex-start}}
+.sec-list{margin:0;padding-left:20px;display:grid;gap:6px;font-size:14px;line-height:1.45}
+.sec-code{font-family:var(--f-mono);font-size:17px;font-weight:600;letter-spacing:.04em;line-height:1.6;background:var(--surface);border:1px dashed var(--accent);border-radius:var(--r-sm);padding:12px 14px;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
+.sec-qr{display:block;width:180px;height:180px;background:#fff;padding:8px;border-radius:var(--r-sm);border:1px solid var(--line)}
+.sec-secret{font-family:var(--f-mono);font-size:13px;overflow-wrap:anywhere;user-select:all;-webkit-user-select:all}
+.sec-form{display:grid;gap:12px}
+.sec-busy{font-weight:600;color:var(--accent)}
+#sec-gate .auth-box .row{margin-top:2px}
+#sec-gate .btn[type=submit],#sec-gate #sg-done{width:100%}
+#card-sec .banner{margin:4px 0 8px}
+</style>
+</head>
+<body>
+
+<div id="splash" class="splash"><div class="auth-brand"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 18l7-7 7 7" style="stroke:var(--accent)"/><path d="M7.5 12.5L12 8l4.5 4.5" style="stroke:var(--accent);opacity:.55"/></svg><span>Ascend</span></div></div>
+
+<div id="auth" class="auth" hidden>
+  <div class="auth-card">
+    <div class="auth-brand"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 18l7-7 7 7" style="stroke:var(--accent)"/><path d="M7.5 12.5L12 8l4.5 4.5" style="stroke:var(--accent);opacity:.55"/></svg><span>Ascend</span></div>
+    <p class="auth-tag">Tu plan diario de comida y calorías, ejercicio, hábitos, recordatorios, medicamentos y sueño, guardado en tu cuenta.</p>
+    <div class="auth-box">
+      <div class="auth-tabs" id="auth-tabs" role="tablist" aria-label="Acceso">
+        <button type="button" role="tab" id="auth-tab-in" data-mode="in" aria-selected="true">Entrar</button>
+        <button type="button" role="tab" id="auth-tab-up" data-mode="up" aria-selected="false">Crear cuenta</button>
+      </div>
+      <h1 class="auth-h" id="auth-h" hidden></h1>
+      <form id="auth-form" novalidate>
+        <div class="field" id="auth-email-f"><label class="lbl" for="auth-email">Correo</label><input type="email" id="auth-email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false"></div>
+        <div class="field" id="auth-pass-f"><label class="lbl" for="auth-pass" id="auth-pass-lbl">Contraseña</label><input type="password" id="auth-pass" autocomplete="current-password" maxlength="128"></div>
+        <label class="consent" id="auth-consent-f" hidden><input type="checkbox" id="auth-consent"><span>Acepto la <a href="/privacidad" target="_blank" rel="noopener">política de privacidad</a> y doy mi consentimiento explícito para que Ascend guarde y use mis datos de salud en mi cuenta.</span></label>
+        <p class="form-err" id="auth-err" role="alert"></p>
+        <p class="auth-ok" id="auth-ok" role="status"></p>
+        <button type="submit" class="btn" id="auth-go">Entrar</button>
+      </form>
+      <button type="button" class="link" id="auth-forgot">Olvidé mi contraseña</button>
+    </div>
+    <p class="auth-note">Tus registros viajan y se guardan cifrados, y solo tú los ves. <a href="/privacidad" target="_blank" rel="noopener">Privacidad</a></p>
+    <details class="privacy" id="auth-privacy"></details>
+  </div>
+</div>
+
+<div id="app" hidden>
+<header class="bar">
+  <div class="bar-in">
+    <span class="brand"><svg class="mark" viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 18l7-7 7 7" style="stroke:var(--accent)"/><path d="M7.5 12.5L12 8l4.5 4.5" style="stroke:var(--accent);opacity:.55"/></svg>Ascend</span>
+    <span id="save" class="save" data-s="loading" role="status" aria-live="polite">Cargando…</span>
+  </div>
+</header>
+
+<main id="main">
+  <div class="view" id="view-hoy" data-view="hoy">
+    <section class="card"><div class="card-h"><h2>Hoy</h2></div><p class="empty">Cargando tu plan del día: medicamentos, agua, comidas y sueño.</p></section>
+  </div>
+  <div class="view" id="view-progreso" data-view="progreso" hidden></div>
+  <div class="view" id="view-habitos" data-view="habitos" hidden></div>
+  <div class="view" id="view-salud" data-view="salud" hidden></div>
+  <div class="view" id="view-guia" data-view="guia" hidden></div>
+  <div class="view" id="view-ajustes" data-view="ajustes" hidden></div>
+</main>
+
+<div id="sheet" class="sheet" hidden><div class="sheet-bg" data-act="sheet-close"></div><div class="sheet-card" id="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-t"></div></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<nav class="tabs" aria-label="Secciones">
+  <div class="tabs-in">
+    <button type="button" class="tab" id="tab-hoy" data-tab="hoy" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g transform="rotate(-40 12 12)"><rect x="3" y="8.5" width="18" height="7" rx="3.5" fill="none"/><path d="M12 8.5v7"/></g></svg><span>Hoy</span></button>
+    <button type="button" class="tab" id="tab-progreso" data-tab="progreso"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v16h16"/><path d="M7.5 15l3.5-4 3 2.5 5-6.5"/></svg><span>Progreso</span></button>
+    <button type="button" class="tab" id="tab-habitos" data-tab="habitos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4.5" fill="none"/><path d="M8.5 12.3l2.4 2.4 4.6-5"/></svg><span>Hábitos</span></button>
+    <button type="button" class="tab" id="tab-salud" data-tab="salud"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4.5" width="14" height="16" rx="2" fill="none"/><path d="M9 3.5h6v3H9z"/><path d="M9 11.5h6M9 15.5h4"/></svg><span>Salud</span></button>
+    <button type="button" class="tab" id="tab-guia" data-tab="guia"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none"/><circle cx="12" cy="12" r="4.5" fill="none"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></svg><span>Plan</span></button>
+    <button type="button" class="tab" id="tab-ajustes" data-tab="ajustes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2" fill="none"/><circle cx="9" cy="17" r="2" fill="none"/></svg><span>Ajustes</span></button>
+  </div>
+</nav>
+</div>
+
+<script src="/js/a01.js"></script>
+<script src="/js/a02.js"></script>
+<script src="/js/a03.js"></script>
+<script src="/js/a04.js"></script>
+<script src="/js/a05.js"></script>
+<script src="/js/a06.js"></script>
+<script src="/js/a07.js"></script>
+<script src="/js/a08.js"></script>
+<script src="/js/a09.js"></script>
+<script src="/js/a10.js"></script>
+<script src="/js/a11.js"></script>
+<script src="/js/a12.js"></script>
+<script src="/js/a13.js"></script>
+<script src="/js/a14.js"></script>
+<script src="/js/a15.js"></script>
+<script src="/js/a16.js"></script>
+<script src="/js/a17.js"></script>
+<script src="/js/a18.js"></script>
+<script src="/js/a19.js"></script>
+<script src="/js/a20.js"></script>
+<script src="/js/a21.js"></script>
+<script src="/js/a22.js"></script>
+<script src="/js/a23.js"></script>
+</body>
+</html>
