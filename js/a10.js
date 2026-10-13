@@ -326,7 +326,7 @@ function renderHoy(parts) {
   const root = $('#view-hoy');
   if (!root) return;
   const c = { k: S.viewKey, day: getDay(S.viewKey), isToday: S.viewKey === todayKey() };
-  if (!parts || !$('#card-meds', root)) { swap(root, HOY_ORDER.map(p => HOY[p](c)).join('')); return; }
+  if (!parts || !$('#card-meds', root)) { swap(root, quoteHTML() + HOY_ORDER.map(p => HOY[p](c)).join('')); return; }
   for (const p of parts) { const el = document.getElementById('card-' + p); if (el) replaceEl(el, HOY[p](c)); }
 }
 

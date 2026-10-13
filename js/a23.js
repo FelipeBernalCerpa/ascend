@@ -236,5 +236,81 @@ function secAfterStart() {
   secMfaRefresh();
 }
 
+/* ---------- v5b: frase del día (éxito, disciplina, mentalidad) ----------
+   Citas reales y conocidas, traducidas al español. Una distinta cada día, en rotación.
+   No se inventan citas ni se atribuyen frases falsas a personas reales. */
+const QUOTES = [
+  { t: 'No te detengas cuando estés cansado. Detente cuando hayas terminado.', a: 'David Goggins' },
+  { t: 'Sé incomún entre los incomunes.', a: 'David Goggins' },
+  { t: 'Las conversaciones más importantes que tendrás en la vida son las que tienes contigo mismo.', a: 'David Goggins' },
+  { t: 'La única forma de ganar temple mental es haciendo cosas que no te gusta hacer.', a: 'David Goggins' },
+  { t: 'Cuando algo es suficientemente importante, lo haces aunque las probabilidades no estén a tu favor.', a: 'Elon Musk' },
+  { t: 'El fracaso es una opción. Si las cosas no fallan, no estás innovando lo suficiente.', a: 'Elon Musk' },
+  { t: 'La persistencia es muy importante. No deberías rendirte a menos que te veas obligado a hacerlo.', a: 'Elon Musk' },
+  { t: 'El talento sin trabajo duro no es nada.', a: 'Cristiano Ronaldo' },
+  { t: 'Tu dedicación de hoy es tu ventaja de mañana.', a: 'Cristiano Ronaldo' },
+  { t: 'No hay talento aquí, esto es trabajo duro. Esto es una obsesión.', a: 'Conor McGregor' },
+  { t: 'No estamos aquí para participar, estamos aquí para apoderarnos de todo.', a: 'Conor McGregor' },
+  { t: 'La duda solo se elimina con la acción. Si no estás trabajando, ahí es donde entra la duda.', a: 'Conor McGregor' },
+  { t: 'La precisión vence a la potencia, y el tiempo vence a la velocidad.', a: 'Conor McGregor' },
+  { t: 'Lo único que se interpone entre tú y tu meta es la historia que te sigues contando sobre por qué no puedes lograrlo.', a: 'Jordan Belfort' },
+  { t: 'Las personas exitosas están 100% convencidas de que son dueñas de su propio destino.', a: 'Jordan Belfort' },
+  { t: 'He fallado una y otra vez en mi vida, y por eso tengo éxito.', a: 'Michael Jordan' },
+  { t: 'Puedo aceptar el fracaso, todos fallan en algo. Pero no puedo aceptar no intentarlo.', a: 'Michael Jordan' },
+  { t: 'Algunos quieren que pase, otros desean que pase, y otros hacen que pase.', a: 'Michael Jordan' },
+  { t: 'Los límites, como los miedos, muchas veces son solo una ilusión.', a: 'Michael Jordan' },
+  { t: 'El trabajo duro supera al talento cuando el talento no trabaja duro.', a: 'Kobe Bryant' },
+  { t: 'La mentalidad Mamba es una búsqueda constante por ser la mejor versión de ti mismo.', a: 'Kobe Bryant' },
+  { t: 'No cuentes los días, haz que los días cuenten.', a: 'Muhammad Ali' },
+  { t: 'Imposible es solo una palabra grande que usan los hombres débiles.', a: 'Muhammad Ali' },
+  { t: 'La fuerza no viene de ganar. Tus luchas desarrollan tus fortalezas.', a: 'Arnold Schwarzenegger' },
+  { t: 'Tanto si crees que puedes como si crees que no puedes, tienes razón.', a: 'Henry Ford' },
+  { t: 'Lo que la mente puede concebir y creer, lo puede lograr.', a: 'Napoleon Hill' },
+  { t: 'Tu tiempo es limitado, no lo malgastes viviendo la vida de otra persona.', a: 'Steve Jobs' },
+  { t: 'La única forma de hacer un gran trabajo es amar lo que haces.', a: 'Steve Jobs' },
+  { t: 'Ser realista es el camino más transitado hacia la mediocridad.', a: 'Will Smith' },
+  { t: 'El talento lo tienes de forma natural; la habilidad se desarrolla con horas y horas de trabajo.', a: 'Will Smith' },
+  { t: 'Cuando quieras tener éxito tanto como quieres respirar, entonces lo tendrás.', a: 'Eric Thomas' },
+  { t: 'Apunta a la luna. Si fallas, puedes dar en una estrella.', a: 'Les Brown' },
+  { t: 'Siempre parece imposible hasta que se hace.', a: 'Nelson Mandela' },
+  { t: 'Nunca pierdo. O gano o aprendo.', a: 'Nelson Mandela' },
+  { t: 'No importa lo fuerte que pegues, sino lo fuerte que puedan golpearte y sigas avanzando.', a: 'Rocky Balboa' },
+  { t: 'La disciplina es el puente entre las metas y los logros.', a: 'Jim Rohn' },
+  { t: 'No desees que fuera más fácil, desea ser mejor.', a: 'Jim Rohn' },
+  { t: 'El éxito no es definitivo, el fracaso no es fatal: lo que cuenta es el valor para continuar.', a: 'Winston Churchill' },
+  { t: 'La felicidad de tu vida depende de la calidad de tus pensamientos.', a: 'Marco Aurelio' },
+  { t: 'El hombre que mueve una montaña empieza cargando pequeñas piedras.', a: 'Confucio' },
+  { t: 'No importa lo despacio que vayas mientras no te detengas.', a: 'Confucio' },
+  { t: 'Primero te ignoran, luego se ríen de ti, luego te atacan y entonces ganas.', a: 'Mahatma Gandhi' },
+  { t: 'La mejor manera de predecir el futuro es crearlo.', a: 'Peter Drucker' },
+  { t: 'Un objetivo sin un plan es solo un deseo.', a: 'Antoine de Saint-Exupéry' },
+  { t: 'El único lugar donde el éxito viene antes que el trabajo es en el diccionario.', a: 'Vince Lombardi' },
+  { t: 'No se trata de ser el mejor. Se trata de ser mejor de lo que fuiste ayer.', a: 'Anónimo' },
+  { t: 'Cae siete veces, levántate ocho.', a: 'Proverbio japonés' },
+  { t: 'La suerte es lo que pasa cuando la preparación se encuentra con la oportunidad.', a: 'Séneca' },
+  { t: 'No es que tengamos poco tiempo, sino que perdemos mucho.', a: 'Séneca' },
+  { t: 'Quien tiene un porqué para vivir puede soportar casi cualquier cómo.', a: 'Friedrich Nietzsche' },
+  { t: 'El que tiene un porqué lo suficientemente fuerte puede soportar casi cualquier cómo.', a: 'Viktor Frankl' },
+  { t: 'Nuestra mayor gloria no está en no caer nunca, sino en levantarnos cada vez que caemos.', a: 'Ralph Waldo Emerson' },
+  { t: 'El que quiere hacer algo encuentra un medio; el que no, encuentra una excusa.', a: 'Proverbio árabe' },
+  { t: 'La motivación te pone en marcha, el hábito te mantiene en movimiento.', a: 'Jim Ryun' },
+  { t: 'Hazlo con miedo, pero hazlo.', a: 'Anónimo' },
+  { t: 'Si quieres resultados distintos, no hagas siempre lo mismo.', a: 'Albert Einstein' },
+  { t: 'Nadie que haya dado lo mejor de sí mismo lo ha lamentado.', a: 'George Halas' },
+  { t: 'La única persona a la que debes superar es a la que fuiste ayer.', a: 'Anónimo' }
+];
+function quoteOfDay() {
+  if (!QUOTES.length) return null;
+  const k = (typeof todayKey === 'function') ? todayKey() : new Date().toISOString().slice(0, 10);
+  const d = (typeof parseKey === 'function') ? parseKey(k) : new Date(k);
+  const n = Math.floor(d.getTime() / 86400000);
+  return QUOTES[((n % QUOTES.length) + QUOTES.length) % QUOTES.length];
+}
+function quoteHTML() {
+  const q = quoteOfDay();
+  if (!q) return '';
+  return '<div class="quote-hoy" role="note"><p class="q-t">' + esc(q.t) + '</p><p class="q-a">' + esc(q.a) + '</p></div>';
+}
+
 secInstall();
 boot();
