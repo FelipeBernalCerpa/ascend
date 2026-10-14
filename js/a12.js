@@ -3,7 +3,7 @@ function renderProgreso() {
   const root = $('#view-progreso');
   if (!root) return;
   S.charts = {};
-  swap(root, achievementsHTML() + anaCardHTML('gen') + weekHTML() + averagesHTML() + nutri7HTML() + measureHTML('weight') + compHTML() + bmiHTML() + measureHTML('height'));
+  swap(root, achievementsHTML() + anaCardHTML('gen') + weekHTML() + averagesHTML() + nutri7HTML() + measureHTML('weight') + compHTML() + bmiHTML() + measureHTML('height') + rankingCardHTML());
   drawCharts(root);
 }
 
@@ -241,7 +241,7 @@ function renderAjustes() {
       '<div class="field"><label class="lbl" for="set-bed">Dormido a las</label><input type="time" id="set-bed" data-set="bedTarget" value="' + esc(s.bedTarget) + '"' + setDis + '></div>' +
       '<div class="field"><label class="lbl" for="set-wake">Me levanto a las</label><input type="time" id="set-wake" data-set="wakeTarget" value="' + esc(s.wakeTarget) + '"' + setDis + '></div>' +
     '</div><p class="hint">Si tu médico te indica otra meta de agua o de sueño, cámbiala aquí.</p></section>' +
-    profileCardHTML() + goalsCardHTML() + myFoodsCardHTML() +
+    profileCardHTML() + goalsCardHTML() + myFoodsCardHTML() + socialCardHTML() +
     '<section class="card" id="card-account"><div class="card-h"><h2>Tu cuenta</h2></div>' +
       '<p class="acct">' + esc(S.userEmail || '') + '</p>' +
       '<div class="row"><button type="button" class="btn quiet" id="acct-export" data-act="export">Descargar mis datos</button>' +

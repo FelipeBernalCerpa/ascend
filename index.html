@@ -127,6 +127,31 @@
 .iconopt{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--surface);font-size:19px;cursor:pointer}
 .iconopt.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 </style>
+<style id="v8">
+/* ---------- v8: amigos y ranking ---------- */
+#card-social .soc-me{margin:2px 0 10px}
+.soc-u{font-family:var(--f-display);font-weight:800;font-size:19px}
+.soc-code{background:var(--app,var(--surface));border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;margin:0 0 12px}
+.soc-code-l{display:block;font-size:11.5px;color:var(--muted);margin-bottom:6px}
+.soc-code-v{display:flex;align-items:center;gap:10px}
+.soc-code-v code{font-family:var(--f-mono);font-weight:700;font-size:20px;letter-spacing:.14em;flex:1;user-select:all;-webkit-user-select:all}
+#card-social .switch{margin:0 0 12px}
+.soc-add .amt-row{display:flex;gap:8px}
+.soc-add .amt-row input{flex:1}
+.consent.sm{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--muted);margin:2px 0 12px;line-height:1.4}
+.consent.sm input{margin-top:2px}
+
+/* tabla de ranking */
+#card-rank .segc{margin:4px 0 12px}
+.lb{display:grid;gap:3px}
+.lb-row{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:10px}
+.lb-row.me{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.lb-pos{font-family:var(--f-mono);font-size:12.5px;font-weight:600;color:var(--muted);width:24px;text-align:center;flex:none}
+.soc-badge{width:28px;height:28px;border-radius:8px;flex:none;display:grid;place-items:center;font-size:14px;background:color-mix(in srgb,var(--rc,#888) 24%,transparent)}
+.lb-name{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lb-name small{color:var(--muted);font-weight:500}
+.lb-xp{flex:none;font-family:var(--f-mono);font-size:12.5px;font-weight:600;color:var(--accent)}
+</style>
 </head>
 <body>
 
@@ -215,5 +240,6 @@
 <script src="/js/a22.js"></script>
 <script src="/js/a23.js"></script>
 <script src="/js/a24.js"></script>
+<script src="/js/a25.js"></script>
 </body>
 </html>

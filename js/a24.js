@@ -204,5 +204,141 @@ function v7Submit(kind) {
   return false;
 }
 
-secInstall();
-boot();
+/* ---------- v8: amigos y ranking ----------
+   Comparte SOLO el juego (alias, nivel, racha, logros). Nunca comida, peso, medicamentos ni exámenes.
+   Todo pasa por funciones controladas en Supabase (ver entrega/ascend-social.sql). */
+S.social = { profile: null, has: false, ready: true, loadedMe: false, fboard: null, gboard: null, view: 'friends', busy: false, err: '', _pub: 0 };
+
+function weekXP() {
+  let t = 0; const tk = todayKey(); let k = weekStart(tk);
+  for (let i = 0; i < 8 && k <= tk; i++) { t += gDayXP(k); k = addDays(k, 1); }
+  return t;
+}
+function achCount() {
+  const a = achStats();
+  return [a.best, a.water, a.habits, a.exDays, a.logged].filter(x => x > 0).length;
+}
+function rankByName(name) {
+  const base = String(name || '').split(' ')[0];
+  return RANKS.find(r => r.name === base) || RANKS[0];
+}
+function socialNotReady(e) {
+  const m = ((e && (e.message || e.msg)) || '') + ' ' + ((e && e.code) || '');
+  return /does not exist|not found|42P01|PGRST202|schema cache|Could not find/i.test(m);
+}
+
+async function socialLoadMe() {
+  if (!sb || !store.userId) return;
+  try {
+    const { data, error } = await sb.from('profiles').select('username,code,rank,xp,week_xp,streak,ach,is_public').eq('user_id', store.userId).maybeSingle();
+    if (error) { if (socialNotReady(error)) S.social.ready = false; S.social.loadedMe = true; return; }
+    S.social.profile = data || null; S.social.has = !!data; S.social.ready = true; S.social.loadedMe = true;
+  } catch (e) { if (socialNotReady(e)) S.social.ready = false; S.social.loadedMe = true; }
+}
+async function socialInit() {
+  await socialLoadMe();
+  if (S.social.has && S.daysLoaded) socialPublish(true);
+  if (S.tab === 'ajustes') renderAjustes();
+}
+async function socialPublish(force) {
+  if (!sb || !store.userId || !S.social.profile) return;
+  const now = Date.now();
+  if (!force && now - S.social._pub < 20000) return;
+  S.social._pub = now;
+  const g = gameStats();
+  try {
+    const { data, error } = await sb.rpc('game_publish', {
+      p_username: S.social.profile.username, p_rank: g.rankObj.name + (g.divName ? ' ' + g.divName : ''),
+      p_xp: g.raw, p_week_xp: weekXP(), p_streak: g.streak, p_ach: achCount(),
+      p_public: S.social.profile.is_public !== false
+    });
+    if (!error && data) S.social.profile.code = data;
+  } catch (e) {}
+}
+async function socialSetup() {
+  if (S.social.busy) return;
+  const inp = $('#soc-name'), pub = $('#soc-public');
+  const name = String(inp ? inp.value : '').trim();
+  const isPub = pub ? !!pub.checked : true;
+  if (name.length < 3) { S.social.err = 'El nombre debe tener al menos 3 letras.'; renderAjustes(); return; }
+  S.social.busy = true; S.social.err = ''; renderAjustes();
+  const g = gameStats();
+  try {
+    const { data, error } = await sb.rpc('game_publish', { p_username: name, p_rank: g.rankObj.name + (g.divName ? ' ' + g.divName : ''), p_xp: g.raw, p_week_xp: weekXP(), p_streak: g.streak, p_ach: achCount(), p_public: isPub });
+    if (error) throw error;
+    S.social.profile = { username: name, code: data, is_public: isPub, rank: g.rankObj.name, week_xp: weekXP(), streak: g.streak };
+    S.social.has = true; S.social.busy = false; S.social.err = '';
+    renderActive();
+    toast('¡Listo! Tu alias es ' + name + '.');
+  } catch (e) {
+    S.social.busy = false;
+    S.social.err = socialNotReady(e) ? 'El ranking todavía no está disponible.' : (e && e.message ? e.message : 'No se pudo activar.');
+    renderAjustes();
+  }
+}
+async function socialSetPublic(on) {
+  if (!S.social.profile) return;
+  S.social.profile.is_public = on;
+  renderActive();
+  S.social._pub = 0; await socialPublish(true);
+}
+async function socialAddFriend() {
+  if (S.social.busy) return;
+  const inp = $('#soc-code');
+  const code = String(inp ? inp.value : '').trim();
+  if (code.length < 4) { S.social.err = 'Escribe el código de tu amigo.'; renderAjustes(); return; }
+  S.social.busy = true; S.social.err = ''; renderAjustes();
+  try {
+    const { data, error } = await sb.rpc('game_add_friend', { p_code: code });
+    if (error) throw error;
+    S.social.busy = false; S.social.fboard = null;
+    renderActive();
+    toast('Agregaste a ' + (data || 'tu amigo') + '.');
+    socialLoadBoards();
+  } catch (e) {
+    S.social.busy = false;
+    S.social.err = socialNotReady(e) ? 'El ranking todavía no está disponible.' : (e && e.message ? e.message : 'No se pudo agregar.');
+    renderAjustes();
+  }
+}
+async function socialLoadBoards() {
+  if (!sb || !store.userId || !S.social.has) return;
+  if (S.daysLoaded) { S.social._pub = 0; await socialPublish(true); }
+  try {
+    const [f, g] = await Promise.all([sb.rpc('game_friends_board'), sb.rpc('game_global_board')]);
+    if (!f.error) S.social.fboard = f.data || [];
+    if (!g.error) S.social.gboard = g.data || [];
+    if (S.tab === 'progreso') renderProgreso();
+  } catch (e) {}
+}
+
+function socBadge(rankName) {
+  const r = rankByName(rankName);
+  return '<span class="soc-badge" style="--rc:' + r.color + '">' + r.icon + '</span>';
+}
+function socRows(list, global) {
+  if (!list) return '<p class="empty">Cargando…</p>';
+  if (!list.length || (list.length === 1 && list[0].me)) return global ? '<p class="empty">Aún no hay nadie en el ranking global. ¡Podrías ser el primero!</p>' : '<p class="empty">Todavía no tienes amigos aquí. Agrega a alguien con su código en Ajustes.</p>';
+  return '<div class="lb">' + list.map((r, i) => {
+    const pos = global && r.pos ? r.pos : i + 1;
+    return '<div class="lb-row' + (r.me ? ' me' : '') + '"><span class="lb-pos">' + pos + '</span>' + socBadge(r.rank) +
+      '<span class="lb-name">' + esc(r.username) + (r.me ? ' <small>(tú)</small>' : '') + '</span>' +
+      '<span class="lb-xp">' + fmtInt(r.week_xp || 0) + ' XP</span></div>';
+  }).join('') + '</div>';
+}
+function socialMaybeInit() { if (!S.social.loadedMe && sb && typeof store !== 'undefined' && store.userId) socialInit(); }
+function rankingCardHTML() {
+  socialMaybeInit();
+  if (!S.social.has) {
+    return '<section class="card" id="card-rank"><div class="card-h"><h2>Ranking</h2></div>' +
+      (S.social.ready ? '<p class="empty">Activa el ranking en <b>Ajustes → Amigos y ranking</b> para competir con tus amigos y en el mundo.</p>'
+        : '<p class="empty">El ranking todavía no está disponible.</p>') + '</section>';
+  }
+  const v = S.social.view;
+  if ((v === 'friends' && !S.social.fboard) || (v === 'global' && !S.social.gboard)) socialLoadBoards();
+  return '<section class="card" id="card-rank"><div class="card-h"><h2>Ranking</h2><span class="meta">esta semana</span></div>' +
+    '<div class="segc" role="tablist"><button type="button" role="tab" data-act="soc-view" data-v="friends" aria-selected="' + (v === 'friends') + '">Amigos</button>' +
+    '<button type="button" role="tab" data-act="soc-view" data-v="global" aria-selected="' + (v === 'global') + '">Global</button></div>' +
+    (v === 'friends' ? socRows(S.social.fboard, false) : socRows(S.social.gboard, true)) +
+    '<p class="hint">Se comparte solo tu alias, nivel, racha y logros. Nunca tu comida, peso, medicamentos ni exámenes.</p></section>';
+}
