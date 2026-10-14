@@ -104,8 +104,9 @@ function renderHabitos() {
   const t = S.hab.tab;
   const seg = '<div class="segc" role="tablist" aria-label="Hábitos o recordatorios">' +
     '<button type="button" role="tab" id="ht-hab" data-act="htab" data-v="hab" aria-selected="' + (t === 'hab') + '">Hábitos</button>' +
-    '<button type="button" role="tab" id="ht-rem" data-act="htab" data-v="rem" aria-selected="' + (t === 'rem') + '">Recordatorios</button></div>';
-  swap(root, seg + (t === 'hab' ? habSectionHTML() : remSectionHTML()));
+    '<button type="button" role="tab" id="ht-rem" data-act="htab" data-v="rem" aria-selected="' + (t === 'rem') + '">Recordatorios</button>' +
+    '<button type="button" role="tab" id="ht-boss" data-act="htab" data-v="boss" aria-selected="' + (t === 'boss') + '">Jefes</button></div>';
+  swap(root, seg + (t === 'hab' ? habSectionHTML() : t === 'rem' ? remSectionHTML() : bossSectionHTML()));
 }
 
 /* ---------- gimnasio ---------- */

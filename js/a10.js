@@ -162,6 +162,7 @@ function extClick(act, el, id) {
       if (!st) return;
       if (st.kind === 'plan') { goStep('form'); return; }
       if (st.kind === 'gym') { goStep('gym'); return; }
+      if (st.kind === 'boss') { if (st.step === 'edit' && st.id) { st.step = 'view'; renderSheet(); } else closeSheet(); return; }
       if (st.kind === 'habit' || st.kind === 'hdetail' || st.kind === 'rem') { closeSheet(); return; }
       if (st.ctx === 'ajustes' || st.editId || st.kind === 'rec') { closeSheet(); return; }
       goStep('search', { food: null });
@@ -363,7 +364,7 @@ function gDayActive(k) {
 function gTotalXP() {
   let t = 0;
   for (const k of Object.keys(S.days)) t += gDayXP(k);
-  return t;
+  return t + (typeof bossBonusXP === 'function' ? bossBonusXP() : 0);
 }
 function gCurStreak() {
   const tk = todayKey();

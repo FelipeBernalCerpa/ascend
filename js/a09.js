@@ -55,6 +55,7 @@ function renderSheet() {
   else if (st.kind === 'habit') html = shHabitHTML(st);
   else if (st.kind === 'hdetail') html = shHabDetailHTML(st);
   else if (st.kind === 'rem') html = shRemHTML(st);
+  else if (st.kind === 'boss') html = shBossHTML(st);
   else if (st.kind === 'rec') html = shRecHTML(st);
   else html = st.step === 'qty' ? shQtyHTML(st) : st.step === 'custom' ? shCustomHTML(st) : st.step === 'scan' ? shScanHTML(st) : shFoodSearchHTML(st);
   swap(card, html);

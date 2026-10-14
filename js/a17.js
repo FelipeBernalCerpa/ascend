@@ -1,4 +1,15 @@
 'use strict';
+function habBestStreak(h, k) {
+  if (habFlex(h)) return null;
+  let best = 0, cur = 0;
+  const from = h.start && h.start > addDays(k, -365) ? h.start : addDays(k, -365);
+  for (let kk = from; kk <= k; kk = addDays(kk, 1)) {
+    if (!habScheduled(h, kk)) continue;
+    if (habDone(h, kk)) { cur++; if (cur > best) best = cur; } else if (kk < k) cur = 0;
+  }
+  return Math.max(best, habStreak(h, k));
+}
+/* cumplimiento: días que tocaban y se hicieron (diarios) o veces logradas sobre las pedidas (flexibles) */
 function habRate(h, k) {
   if (habFlex(h)) {
     let got = 0, need = 0, a = habPeriod(h, k)[0];
@@ -239,10 +250,3 @@ function habAddProposals(src, id, idx) {
   renderActive();
   toast(n === 1 ? 'Hábito agregado.' : 'Agregué ' + n + ' hábitos.');
 }
-
-/* ---------- recordatorios ---------- */
-const REP = [
-  { k: '', label: 'Nunca' }, { k: 'd', label: 'Diario' }, { k: 'wd', label: 'Entre semana' },
-  { k: 'w', label: 'Semanal' }, { k: 'm', label: 'Mensual' }, { k: 'y', label: 'Anual' }
-];
-const RCOLORS = ['#2F7D5B', '#2A6FB0', '#B0702A', '#B5432F', '#5B5FB0', '#8A4FA8', '#2C8C8C', '#77808A'];

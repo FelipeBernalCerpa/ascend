@@ -98,9 +98,10 @@ function aiDayHTML(c) {
 /* ---------- eventos v4 ---------- */
 function v4Click(act, el, id) {
   if (v6Click(act, el, id)) return;
+  if (v7Click(act, el, id)) return;
   const st = S.sheet;
   switch (act) {
-    case 'htab': S.hab.tab = el.dataset.v === 'rem' ? 'rem' : 'hab'; lsSet('ascend-htab', S.hab.tab); renderHabitos(); return true;
+    case 'htab': S.hab.tab = ['rem', 'boss'].indexOf(el.dataset.v) >= 0 ? el.dataset.v : 'hab'; lsSet('ascend-htab', S.hab.tab); renderHabitos(); return true;
     case 'hab-new': openHabitEdit(null); return true;
     case 'hab-open': openSheet({ kind: 'hdetail', step: 'detail', k: el.dataset.k, month: monthStart(todayKey()) }); return true;
     case 'hab-edit': openHabitEdit(el.dataset.k); return true;
@@ -218,6 +219,7 @@ function v4Input(t) {
   return false;
 }
 function v4Submit(kind) {
+  if (v7Submit(kind)) return true;
   switch (kind) {
     case 'sh-habit': habSave(); return true;
     case 'sh-rem': remSave(); return true;

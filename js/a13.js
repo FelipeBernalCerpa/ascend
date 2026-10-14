@@ -477,6 +477,13 @@ function subscribeAll() {
     else if (S.tab === 'progreso') renderProgreso();
     else if (S.tab === 'habitos') renderHabitos();
   });
+  store.watchDoc('config/bosses', data => {
+    S.loaded.bosses = true;
+    if (dirty.has('config/bosses')) return;
+    S.bosses = data && Array.isArray(data.items) ? data : null;
+    if (S.tab === 'habitos') renderHabitos();
+    else if (S.tab === 'hoy') renderHoy(['game']);
+  });
   store.watchDoc('config/aichat', data => {
     S.loaded.aichat = true;
     if (dirty.has('config/aichat')) return;

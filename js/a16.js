@@ -207,7 +207,7 @@ S.routines = []; S.loaded.routines = false;
 S.rlists = null; S.loaded.rlists = false;
 S.loaded.aianalysis = false;
 S.ana = { period: 'week', hperiod: 'week', busy: '', err: {}, items: [] };
-S.hab = { tab: lsGet('ascend-htab') === 'rem' ? 'rem' : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
+S.hab = { tab: ['rem', 'boss'].indexOf(lsGet('ascend-htab')) >= 0 ? lsGet('ascend-htab') : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
 IMPORT_COLS.push('reminders', 'routines');
 const MAX_REMS = 800, MAX_RLISTS = 30, MAX_ROUTINES = 30, MAX_ANA = 15;
 const isKey = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
@@ -323,14 +323,3 @@ function habStreak(h, k) {
   }
   return n;
 }
-function habBestStreak(h, k) {
-  if (habFlex(h)) return null;
-  let best = 0, cur = 0;
-  const from = h.start && h.start > addDays(k, -365) ? h.start : addDays(k, -365);
-  for (let kk = from; kk <= k; kk = addDays(kk, 1)) {
-    if (!habScheduled(h, kk)) continue;
-    if (habDone(h, kk)) { cur++; if (cur > best) best = cur; } else if (kk < k) cur = 0;
-  }
-  return Math.max(best, habStreak(h, k));
-}
-/* cumplimiento: días que tocaban y se hicieron (diarios) o veces logradas sobre las pedidas (flexibles) */

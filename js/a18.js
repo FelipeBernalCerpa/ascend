@@ -1,4 +1,10 @@
 'use strict';
+/* ---------- recordatorios ---------- */
+const REP = [
+  { k: '', label: 'Nunca' }, { k: 'd', label: 'Diario' }, { k: 'wd', label: 'Entre semana' },
+  { k: 'w', label: 'Semanal' }, { k: 'm', label: 'Mensual' }, { k: 'y', label: 'Anual' }
+];
+const RCOLORS = ['#2F7D5B', '#2A6FB0', '#B0702A', '#B5432F', '#5B5FB0', '#8A4FA8', '#2C8C8C', '#77808A'];
 function rlists() {
   const items = S.rlists && Array.isArray(S.rlists.items) ? S.rlists.items.filter(x => x && typeof x.id === 'string' && x.id && x.id !== 'inbox' && x.name)
     .map(x => ({ id: x.id, name: String(x.name).slice(0, 40), color: RCOLORS.indexOf(x.color) >= 0 ? x.color : RCOLORS[1] })) : [];
