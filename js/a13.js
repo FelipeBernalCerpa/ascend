@@ -1,4 +1,93 @@
 'use strict';
+function renderSalud() {
+  const root = $('#view-salud');
+  if (!root) return;
+  S.charts = {};
+  swap(root, labsHTML() + questionsHTML() + summaryHTML());
+  drawCharts(root);
+}
+async function copySummary() {
+  const ta = $('#sum-out');
+  if (!ta) return;
+  let ok = false;
+  try { await navigator.clipboard.writeText(S.summary); ok = true; } catch (e) { ok = false; }
+  if (!ok) { ta.focus(); ta.select(); return; }
+  S.copied = true;
+  renderSalud();
+  setTimeout(() => { S.copied = false; if (S.tab === 'salud') renderSalud(); }, 2500);
+}
+
+/* ---------- GUÍA ---------- */
+
+/* ---------- AJUSTES ---------- */
+function medEditorHTML() {
+  const d = S.medDraft;
+  if (!d) return '';
+  const isNew = !d.id;
+  const days = Array.isArray(d.days) ? d.days : ALL_DAYS;
+  return '<div class="med-ed" id="med-editor"><h3 class="form-t">' + (isNew ? 'Nuevo medicamento' : 'Editar medicamento') + '</h3>' +
+    '<div class="field"><label class="lbl" for="md-name">Nombre</label><input type="text" id="md-name" data-md-field="name" value="' + esc(d.name || '') + '" autocomplete="off"></div>' +
+    '<div class="grid2">' +
+      '<div class="field"><label class="lbl" for="md-dose">Dosis</label><input type="text" id="md-dose" data-md-field="dose" value="' + esc(d.dose || '') + '" placeholder="La de tu fórmula"></div>' +
+      '<div class="field"><label class="lbl" for="md-note">Nota</label><input type="text" id="md-note" data-md-field="note" value="' + esc(d.note || '') + '"></div>' +
+    '</div>' +
+    '<div class="field"><span class="lbl">Horarios</span><div class="toggles">' + SLOT_KEYS.map(k => '<button type="button" class="tgl" id="mds-' + k + '" data-act="md-slot" data-s="' + k + '" aria-pressed="' + ((d.slots || []).indexOf(k) >= 0) + '">' + esc(S.settings.slots[k].name) + '<small>' + fmtHM(S.settings.slots[k].time) + '</small></button>').join('') + '</div></div>' +
+    '<div class="field"><span class="lbl">Días</span><div class="toggles days">' + WD_ORDER.map(n => '<button type="button" class="tgl" id="mdw-' + n + '" data-act="md-day" data-n="' + n + '" aria-pressed="' + (days.indexOf(n) >= 0) + '" aria-label="' + WD[n] + '">' + WD1[n] + '</button>').join('') + '</div></div>' +
+    '<button type="button" class="switch" id="md-active" data-act="md-active" aria-pressed="' + !!d.active + '"><span class="sw"></span>' + (d.active ? 'Activo' : 'En pausa') + '</button>' +
+    '<p class="form-err">' + esc(S.formErr.med || '') + '</p>' +
+    '<div class="row"><button type="button" class="btn" id="md-save" data-act="md-save">' + (isNew ? 'Agregar' : 'Guardar cambios') + '</button><button type="button" class="btn quiet" id="md-cancel" data-act="md-cancel">Cancelar</button></div>' +
+  '</div>';
+}
+function medRowHTML(m) {
+  if (S.medDraft && S.medDraft.id === m.id) return '<div class="med editing">' + medEditorHTML() + '</div>';
+  const tag = 'med:' + m.id, armed = S.confirmDel === tag;
+  return '<div class="med' + (m.active ? '' : ' off') + '"><div class="med-info"><span class="med-n">' + esc(m.name || 'Sin nombre') + (m.dose ? ' <small>' + esc(m.dose) + '</small>' : '') + '</span>' +
+    '<span class="med-s">' + (m.active ? esc(medSchedText(m)) : 'En pausa') + '</span></div>' +
+    '<div class="med-btns"><button type="button" class="xbtn" id="me-' + m.id + '" data-act="med-edit" data-id="' + esc(m.id) + '"' + ro() + '>Editar</button>' +
+    '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="mx-' + m.id + '" data-act="med-del" data-id="' + esc(m.id) + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div></div>';
+}
+function renderAjustes() {
+  const root = $('#view-ajustes');
+  if (!root) return;
+  const s = S.settings;
+  const setDis = S.readonly || !S.loaded.settings ? ' disabled' : '';
+  const newDraft = !!(S.medDraft && !S.medDraft.id);
+  let medsList;
+  if (!S.medsLoaded) medsList = '<p class="empty">Cargando…</p>';
+  else if (!S.meds.length) medsList = newDraft ? '' : '<p class="empty">Aún no hay medicamentos. Agrega el primero con su nombre, dosis y horario.</p>';
+  else medsList = S.meds.map(medRowHTML).join('');
+  const slotsHTML = SLOT_KEYS.map(k =>
+    '<div class="slot-edit"><div class="field"><label class="lbl" for="sn-' + k + '">Nombre</label><input type="text" id="sn-' + k + '" data-slot-name="' + k + '" value="' + esc(s.slots[k].name) + '"' + setDis + '></div>' +
+    '<div class="field"><label class="lbl" for="st-' + k + '">Hora</label><input type="time" id="st-' + k + '" data-slot-time="' + k + '" value="' + esc(s.slots[k].time) + '"' + setDis + '></div></div>'
+  ).join('');
+  const wipeArmed = S.confirmDel === 'wipe';
+  swap(root,
+    appSettingsCardHTML() +
+    (medsOn() ?
+    '<section class="card" id="card-medsed"><div class="card-h"><h2>Medicamentos</h2><span class="meta">' + S.meds.filter(m => m.active).length + ' activos</span></div>' +
+      (newDraft ? '<div class="med editing new">' + medEditorHTML() + '</div>'
+        : '<button type="button" class="btn add-top" id="med-new" data-act="med-new"' + (S.readonly || !S.medsLoaded ? ' disabled' : '') + '>Agregar medicamento</button>') +
+      '<div class="meds">' + medsList + '</div>' +
+      '<p class="hint">Copia nombre, dosis y horario tal como vienen en tu fórmula. Si un médico cambia algo, actualízalo aquí el mismo día.</p></section>' +
+    '<section class="card"><div class="card-h"><h2>Horarios de tomas</h2></div><div class="slots-ed">' + slotsHTML + '</div></section>' : '') +
+    '<section class="card"><div class="card-h"><h2>Metas</h2></div><div class="grid2">' +
+      '<div class="field"><label class="lbl" for="set-water">Agua al día (ml)</label><input type="text" inputmode="numeric" id="set-water" data-set="waterGoal" value="' + esc(s.waterGoal) + '"' + setDis + '></div>' +
+      '<div class="field"><label class="lbl" for="set-sleep">Sueño (horas)</label><input type="text" inputmode="decimal" id="set-sleep" data-set="sleepGoal" value="' + esc(fmtNum(s.sleepGoal, 1)) + '"' + setDis + '></div>' +
+      '<div class="field"><label class="lbl" for="set-bed">Dormido a las</label><input type="time" id="set-bed" data-set="bedTarget" value="' + esc(s.bedTarget) + '"' + setDis + '></div>' +
+      '<div class="field"><label class="lbl" for="set-wake">Me levanto a las</label><input type="time" id="set-wake" data-set="wakeTarget" value="' + esc(s.wakeTarget) + '"' + setDis + '></div>' +
+    '</div><p class="hint">Si tu médico te indica otra meta de agua o de sueño, cámbiala aquí.</p></section>' +
+    profileCardHTML() + goalsCardHTML() + myFoodsCardHTML() + socialCardHTML() +
+    '<section class="card" id="card-account"><div class="card-h"><h2>Tu cuenta</h2></div>' +
+      '<p class="acct">' + esc(S.userEmail || '') + '</p>' +
+      '<div class="row"><button type="button" class="btn quiet" id="acct-export" data-act="export">Descargar mis datos</button>' +
+      '<label class="btn quiet" for="import-file" id="acct-import">Importar datos</label><input type="file" id="import-file" accept="application/json,.json" hidden></div>' +
+      (S.dataMsg ? '<p class="hint">' + esc(S.dataMsg) + '</p>' : '') +
+      '<div class="row acct-end"><button type="button" class="btn quiet" id="acct-logout" data-act="logout">Cerrar sesión</button>' +
+      '<button type="button" class="btn sm ' + (wipeArmed ? 'danger' : 'quiet') + '" id="acct-wipe" data-act="wipe">' + (wipeArmed ? 'Toca otra vez para borrar todo' : 'Borrar todos mis datos') + '</button></div>' +
+      '<p class="hint">Tus registros se guardan en tu cuenta de Ascend y solo tú los ves. Borrar tus datos no se puede deshacer.</p></section>' +
+    '<section class="card" id="card-about"><div class="card-h"><h2>Sobre Ascend</h2></div><p class="prose">Ascend te ayuda a llevar medicamentos, comida, actividad, sueño y salud en un solo lugar. Los horarios y las dosis los define tu equipo médico.</p><details class="privacy"><summary>Privacidad y uso de tus datos</summary>' + privacyInner() + '</details></section>'
+  );
+}
 function openNewMed() {
   if (S.readonly || !S.medsLoaded) return;
   S.medDraft = { id: null, name: '', dose: '', note: '', slots: ['manana'], days: ALL_DAYS.slice(), active: true };
@@ -308,186 +397,4 @@ function onClick(e) {
     case 'reload': location.reload(); break;
     default: extClick(act, el, id); break;
   }
-}
-function onInput(e) {
-  const t = e.target;
-  if (!t || !t.dataset) return;
-  if (extInput(t)) return;
-  if (t.hasAttribute('data-draft')) { S.drafts[t.id] = t.value; return; }
-  if (t.id === 'day-notes') { mutDay(S.viewKey, d => { d.notes = t.value; }); return; }
-  if (t.dataset.qAns) {
-    const q = S.questions.find(x => x.id === t.dataset.qAns);
-    if (q && !S.readonly) { q.answer = t.value; saver.queue('questions/' + q.id, strip(q), 700); }
-    return;
-  }
-  if (S.readonly) return;
-  if (t.dataset.set && S.loaded.settings) {
-    const k = t.dataset.set;
-    let v = t.value;
-    if (k === 'waterGoal') { const n = parseInt(String(v).replace(/\D/g, ''), 10); if (!n || n < 500 || n > 6000) return; v = n; }
-    else if (k === 'sleepGoal') { const n = parseNum(v); if (!isFinite(n) || n < 5 || n > 12) return; v = n; }
-    else if (!v) return;
-    S.settings[k] = v;
-    saveSettings();
-    return;
-  }
-  if (t.dataset.slotName && S.loaded.settings) { const k = t.dataset.slotName; if (!t.value.trim()) return; S.settings.slots[k].name = t.value.trim(); saveSettings(); return; }
-  if (t.dataset.slotTime && S.loaded.settings) { const k = t.dataset.slotTime; if (!t.value) return; S.settings.slots[k].time = t.value; saveSettings(); return; }
-  if (t.dataset.mdField && S.medDraft) { S.medDraft[t.dataset.mdField] = t.value; return; }
-}
-function onChange(e) {
-  const t = e.target;
-  if (!t || !t.dataset) return;
-  if (extChange(t)) return;
-  if (t.dataset.sleep) {
-    if (mutDay(S.viewKey, d => { d.sleep = Object.assign({}, d.sleep); if (t.value) d.sleep[t.dataset.sleep] = t.value; else delete d.sleep[t.dataset.sleep]; })) renderHoy(['sleep', 'meters']);
-    return;
-  }
-  if (t.id === 'lab-type') {
-    S.drafts['lab-type'] = t.value;
-    ['lab-unit', 'lab-low', 'lab-high', 'lab-name'].forEach(k => { delete S.drafts[k]; });
-    renderSalud();
-    return;
-  }
-  if (t.id === 'height-date') { S.drafts[t.id] = t.value; renderProgreso(); return; }
-  if (t.id === 'import-file') { importData(t); return; }
-  if ((t.dataset.slotName || t.dataset.slotTime || t.dataset.set) && S.tab === 'ajustes') renderAjustes();
-}
-function onSubmit(e) {
-  const f = e.target;
-  const kind = f && f.dataset ? f.dataset.form : null;
-  if (!kind) return;
-  e.preventDefault();
-  if (S.readonly) return;
-  if (extSubmit(kind)) return;
-  if (kind === 'weight' || kind === 'height') submitMeasure(kind, f);
-  else if (kind === 'comp') submitComp(f);
-  else if (kind === 'shop') submitShop(f);
-  else if (kind === 'lab') submitLab(f);
-  else if (kind === 'q') submitQ(f);
-}
-
-/* ---------- suscripciones ---------- */
-function onDays(list) {
-  const first = !S.daysLoaded;
-  let touchView = false, any = false;
-  for (const it of list) {
-    const path = 'days/' + it.id;
-    if (dirty.has(path)) continue;
-    const prev = S.days[it.id];
-    if (!prev || stable(prev) !== stable(it.data)) {
-      S.days[it.id] = clone(it.data);
-      any = true;
-      if (it.id === S.viewKey || it.id === addDays(S.viewKey, -1)) touchView = true;
-    }
-  }
-  S.daysCount = list.length;
-  S.oldestLoaded = list.length ? list.reduce((m, x) => (x.id < m ? x.id : m), list[0].id) : '0000-00-00';
-  S.daysLoaded = true;
-  if (S.tab === 'hoy' && (first || touchView)) renderHoy();
-  else if (S.tab === 'progreso' && (first || any)) renderProgreso();
-  else if (S.tab === 'habitos' && (first || any)) renderHabitos();
-}
-function colHandler(name, sortFn, render) {
-  return list => {
-    const prev = S[name];
-    const byId = new Map(prev.map(x => [x.id, x]));
-    const next = [];
-    for (const it of list) {
-      const path = name + '/' + it.id;
-      if (deleting.has(path)) continue;
-      if (dirty.has(path) && byId.has(it.id)) next.push(byId.get(it.id));
-      else next.push(Object.assign({ id: it.id }, clone(it.data)));
-    }
-    for (const x of prev) if (dirty.has(name + '/' + x.id) && !next.some(y => y.id === x.id)) next.push(x);
-    next.sort(sortFn);
-    const first = !S.loaded[name];
-    const changed = first || stable(next) !== stable(prev.slice().sort(sortFn));
-    S[name] = next;
-    S.loaded[name] = true;
-    if (changed) render();
-  };
-}
-function subscribeAll() {
-  store.watchDoc('config/settings', data => {
-    const first = !S.loaded.settings;
-    S.loaded.settings = true;
-    if (dirty.has('config/settings')) return;
-    const next = mergeSettings(data);
-    const ch = stable(next) !== stable(S.settings);
-    S.settings = next;
-    if (ch || (first && S.tab === 'ajustes')) renderActive();
-  });
-  store.watchDoc('config/meds', data => {
-    const first = !S.medsLoaded;
-    S.medsLoaded = true;
-    if (dirty.has('config/meds')) { if (first) renderActive(); return; }
-    const items = data && Array.isArray(data.items) ? clone(data.items) : [];
-    const ch = stable(items) !== stable(S.meds);
-    S.meds = items;
-    if (ch || first) renderActive();
-  });
-  store.watchDoc('config/shopping', data => {
-    const first = !S.loaded.shopping;
-    S.loaded.shopping = true;
-    if (dirty.has('config/shopping')) return;
-    const next = data && data.checked ? clone(data.checked) : {};
-    const nextC = data && Array.isArray(data.custom) ? clone(data.custom).filter(x => x && x.k && x.label) : [];
-    const ch = stable(next) !== stable(S.shopping) || stable(nextC) !== stable(S.shopCustom);
-    S.shopping = next;
-    S.shopCustom = nextC;
-    if ((ch || first) && S.tab === 'guia') renderGuia();
-  });
-  store.watchDoc('config/profile', data => {
-    const first = !S.loaded.profile;
-    S.loaded.profile = true;
-    if (dirty.has('config/profile')) return;
-    const next = {};
-    if (data && (data.sex === 'm' || data.sex === 'f')) next.sex = data.sex;
-    if (data && typeof data === 'object') Object.assign(next, cleanProfile(data));
-    if (data && /^\d{4}-\d{2}-\d{2}$/.test(String(data.birth || ''))) next.birth = data.birth;
-    const ch = stable(next) !== stable(S.profile);
-    S.profile = next;
-    if (!ch && !first) return;
-    if (S.tab === 'hoy') renderHoy(['act', 'meters', 'boost']);
-    else if (S.tab === 'ajustes') renderAjustes();
-    else if (S.tab === 'progreso') renderProgreso();
-    else if (S.tab === 'guia') renderGuia();
-  });
-  store.watchCol('days', onDays, ref => ref.orderBy('date', 'desc').limit(400));
-  store.watchCol('measures', colHandler('measures', byDate, () => { if (S.tab === 'progreso') renderProgreso(); else if (S.tab === 'hoy') renderHoy(['act', 'meters']); else if (S.tab === 'ajustes') renderAjustes(); }));
-  store.watchCol('labs', colHandler('labs', byDate, () => { if (S.tab === 'salud') renderSalud(); }));
-  store.watchCol('questions', colHandler('questions', byCreated, () => { if (S.tab === 'salud') renderSalud(); }));
-  const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es');
-  const onLib = () => { if (S.tab === 'ajustes') renderAjustes(); if (S.sheet && S.sheet.step === 'search') refreshRes(); };
-  store.watchCol('foods', colHandler('foods', byName, onLib));
-  store.watchCol('recipes', colHandler('recipes', byCreated, onLib));
-  store.watchDoc('config/guide', data => {
-    S.loaded.guide = true;
-    if (dirty.has('config/guide')) return;
-    S.guide = data && typeof data === 'object' ? data : null;
-    if (S.tab === 'guia') renderGuia();
-  });
-  store.watchDoc('config/habits', data => {
-    S.loaded.habits = true;
-    if (dirty.has('config/habits')) return;
-    S.habits = data && Array.isArray(data.items) ? data : null;
-    if (S.tab === 'hoy') renderHoy(['boost']);
-    else if (S.tab === 'ajustes') renderAjustes();
-    else if (S.tab === 'progreso') renderProgreso();
-    else if (S.tab === 'habitos') renderHabitos();
-  });
-  store.watchDoc('config/bosses', data => {
-    S.loaded.bosses = true;
-    if (dirty.has('config/bosses')) return;
-    S.bosses = data && Array.isArray(data.items) ? data : null;
-    if (S.tab === 'habitos') renderHabitos();
-    else if (S.tab === 'hoy') renderHoy(['game']);
-  });
-  store.watchDoc('config/aichat', data => {
-    S.loaded.aichat = true;
-    if (dirty.has('config/aichat')) return;
-    S.chat.items = data && Array.isArray(data.items) ? data.items.filter(x => x && (x.role === 'user' || x.role === 'assistant') && typeof x.text === 'string') : [];
-    if (S.tab === 'guia') renderChat();
-  });
 }

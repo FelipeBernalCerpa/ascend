@@ -1,4 +1,67 @@
 'use strict';
+function habDelete(k) {
+  confirmOrDo('hdel:' + k, () => {
+    saveHabits(habitsList().filter(x => x.k !== k));
+    closeSheet();
+    toast('Hábito borrado. Los días que marcaste se conservan en tu historial.');
+  }, () => { if (S.sheet && S.sheet.kind === 'habit') { habFormSync(); renderSheet(); } else renderActive(); });
+}
+/* agrega hábitos propuestos por la IA */
+function habFromProposal(p) {
+  const freq = { diario: 'daily', dias: 'days', semanal: 'weekly', mensual: 'monthly' }[p.frecuencia] || 'daily';
+  const tk = todayKey(), dur = clampInt(p.duracion_dias, 0, 365, 0);
+  return { k: 'h-' + uid(), label: String(p.nombre || '').trim().slice(0, 60), freq, days: freq === 'days' ? (Array.isArray(p.dias) ? p.dias.filter(n => n >= 0 && n <= 6) : [1, 2, 3, 4, 5]) : [], times: freq === 'weekly' ? clampInt(p.veces, 1, 7, 3) : freq === 'monthly' ? clampInt(p.veces, 1, 31, 4) : 0, start: tk, end: dur ? addDays(tk, dur - 1) : '', remind: '', note: String(p.motivo || '').trim().slice(0, 200), createdAt: Date.now() };
+}
+/* la IA no puede colar hábitos riesgosos: filtros por condición y edad (sin edad se aplican los de menores) */
+const HB_TCA = /calor|kcal|peso|pesar|bascula|cintura|medida|imc|macro|dieta|ayun|restring|porcion|comer menos|no comer|saltar|omitir|quitar|eliminar|solo (verdura|fruta|liquido|agua)|quemar|compens|laxant|purg|vomit|diuretic|ejercicio extra|aunque (este|estes|estoy) cansad|correr \d|\d+ ?km|abdominales diari/;
+const HB_MINOR = /ayun|deficit|saltar(se|me)? (el |la |las |los )?(desayuno|almuerzo|cena|comida|onces|merienda)|omitir|no (desayunar|almorzar|cenar|comer)|contar (calorias|macros)|quemador|quemar \d|suplement|creatina|proteina en polvo|whey|keto|cetogenic|detox|pesarse|pesarme|bascula|comer menos|restring|laxant|diuretic|bebida energetica|energizante/;
+const HB_RENAL = /\b(agua|liquidos?|litros?|vasos?|hidrat\w*|proteinas?|sal|sodio|potasio|fosforo|creatina|suplement\w*|whey|electrolito\w*|bebida deportiva)\b/;
+function habPropBlocked(p) {
+  const t = norm((p.nombre || '') + ' ' + (p.motivo || ''));
+  if (hasCond('tca') && HB_TCA.test(t)) return true;
+  const age = userAge();
+  if ((age == null || age < 18) && HB_MINOR.test(t)) return true;
+  if (hasCond('renal') && HB_RENAL.test(t)) return true;
+  return false;
+}
+function habPropList(list) { return (Array.isArray(list) ? list : []).filter(p => p && p.nombre && !habPropBlocked(p)).slice(0, 6); }
+function habPropHTML(list, src, id) {
+  const ok = habPropList(list);
+  if (!ok.length) return '';
+  const have = new Set(habitsList().map(x => norm(x.label)));
+  const rows = ok.map((p, i) => {
+    const h = habFromProposal(p), added = have.has(norm(h.label));
+    const sub = [habFreqText(habNorm(h)), p.duracion_dias ? 'durante ' + plural(clampInt(p.duracion_dias, 1, 365, 1), 'día', 'días') : ''].filter(Boolean).join(' · ');
+    return '<div class="hprop"><div class="hprop-x"><b>' + esc(h.label) + '</b><small>' + esc(sub) + '</small>' + (p.motivo ? '<span>' + esc(p.motivo) + '</span>' : '') + '</div>' +
+      (added ? '<span class="pill ok">Agregado</span>' : '<button type="button" class="btn sm" id="hp-' + src + '-' + esc(id) + '-' + i + '" data-act="hp-add" data-src="' + src + '" data-id="' + esc(id) + '" data-i="' + i + '"' + (S.readonly ? ' disabled' : '') + '>Agregar</button>') + '</div>';
+  }).join('');
+  const pending = ok.filter(p => !have.has(norm(String(p.nombre).trim().slice(0, 60)))).length;
+  return '<div class="prop hprops"><p class="sh-sec">Hábitos propuestos</p>' + rows +
+    (pending > 1 ? '<button type="button" class="btn sm ghost" id="hpa-' + src + '-' + esc(id) + '" data-act="hp-all" data-src="' + src + '" data-id="' + esc(id) + '"' + (S.readonly ? ' disabled' : '') + '>Agregar todos</button>' : '') + '</div>';
+}
+function habPropSource(src, id) {
+  if (src === 'chat') { const it = S.chat.items[Number(id)]; return it ? it.habits : null; }
+  const it = S.ana.items.find(x => x.id === id);
+  return it ? it.habits : null;
+}
+function habAddProposals(src, id, idx) {
+  if (S.readonly || !S.loaded.habits) return;
+  const ok = habPropList(habPropSource(src, id));
+  const pick = idx == null ? ok : [ok[idx]].filter(Boolean);
+  const list = habitsList().map(x => Object.assign({}, x));
+  const have = new Set(list.map(x => norm(x.label)));
+  let n = 0;
+  for (const p of pick) {
+    const h = habFromProposal(p);
+    if (!h.label || have.has(norm(h.label)) || list.length >= MAX_HABITS) continue;
+    list.push(h); have.add(norm(h.label)); n++;
+  }
+  if (!n) { toast(list.length >= MAX_HABITS ? 'Llegaste al máximo de ' + MAX_HABITS + ' hábitos.' : 'Ya tienes ese hábito.'); return; }
+  saveHabits(list);
+  renderActive();
+  toast(n === 1 ? 'Hábito agregado.' : 'Agregué ' + n + ' hábitos.');
+}
+
 /* ---------- recordatorios ---------- */
 const REP = [
   { k: '', label: 'Nunca' }, { k: 'd', label: 'Diario' }, { k: 'wd', label: 'Entre semana' },
@@ -222,60 +285,4 @@ function remListHTML(v, tk) {
     (v === 'done' && items.length ? '<button type="button" class="btn sm ' + (armedClear ? 'danger' : 'quiet') + '" id="rem-clear" data-act="rem-clear">' + (armedClear ? 'Toca otra vez para borrarlos' : 'Borrar completados') + '</button>' : '') +
     (isList && l.id !== 'inbox' ? (S.hab.editList ? rlistFormHTML(l) : '<div class="row rl-acts"><button type="button" class="btn sm quiet" id="rl-edit" data-act="rl-edit">Editar lista</button><button type="button" class="btn sm ' + (armedDel ? 'danger' : 'quiet') + '" id="rl-del" data-act="rl-del">' + (armedDel ? 'Toca otra vez: sus recordatorios pasan a «Recordatorios»' : 'Borrar lista') + '</button></div>') : '') +
     '</section>';
-}
-function remQuickAdd() {
-  if (S.readonly || !S.loaded.reminders) return;
-  const inp = $('#rq-in');
-  const t = String(inp ? inp.value : '').trim().slice(0, 120);
-  if (!t) return;
-  if (S.reminders.length >= MAX_REMS) { toast('Llegaste al máximo de recordatorios. Borra los completados.'); return; }
-  const v = S.hab.rview, tk = todayKey();
-  const isList = ['today', 'scheduled', 'all', 'flagged', 'done', 'home'].indexOf(v) < 0;
-  const data = { t, n: '', l: isList ? v : 'inbox', due: v === 'today' || v === 'scheduled' ? tk : null, time: null, rep: null, flag: v === 'flagged', pri: 0, done: false, createdAt: Date.now() };
-  const id = uid();
-  S.reminders.push(Object.assign({ id }, data));
-  putDoc('reminders/' + id, data);
-  delete S.drafts['rq-in'];
-  renderHabitos();
-  focusEl('rq-in');
-}
-function openRem(id) {
-  if (S.readonly || !S.loaded.reminders) return;
-  const r = id ? S.reminders.find(x => x.id === id) : null;
-  if (id && !r) return;
-  const v = S.hab.rview, tk = todayKey();
-  const isList = ['today', 'scheduled', 'all', 'flagged', 'done', 'home'].indexOf(v) < 0;
-  const rp = r && r.rep ? r.rep : {};
-  const e = rp.end || {};
-  const f = r ? { t: r.t, n: r.n || '', l: r.l || 'inbox', due: r.due || '', time: r.time || '', rf: rp.f || '', ri: String(rp.i || 1), rdays: Array.isArray(rp.days) ? rp.days.slice() : [], endT: e.t || 'never', endD: e.d || '', endN: String(e.n || 5), flag: !!r.flag, pri: r.pri || 0 }
-    : { t: '', n: '', l: isList ? v : 'inbox', due: v === 'today' || v === 'scheduled' ? tk : '', time: '', rf: '', ri: '1', rdays: [], endT: 'never', endD: '', endN: '5', flag: v === 'flagged', pri: 0 };
-  openSheet({ kind: 'rem', step: 'edit', id: id || null, f, err: '' });
-  if (!id) focusEl('rf-t');
-}
-function shRemHTML(st) {
-  const f = st.f, tk = todayKey(), armed = S.confirmDel === 'rdel:' + st.id;
-  const tg = (act, v, on, label, extra) => '<button type="button" class="tgl" id="' + act + '-' + v + '" data-act="' + act + '" data-v="' + v + '" aria-pressed="' + !!on + '"' + (extra || '') + '>' + label + '</button>';
-  const nextMon = addDays(tk, ((8 - parseKey(tk).getDay()) % 7) || 7);
-  const quick = [['today', 'Hoy', tk], ['tomorrow', 'Mañana', addDays(tk, 1)], ['nextweek', 'Próx. lunes', nextMon], ['none', 'Sin fecha', '']];
-  const unit = { d: ['día', 'días'], w: ['semana', 'semanas'], m: ['mes', 'meses'], y: ['año', 'años'] }[f.rf];
-  return sheetTop(st.id ? 'Editar recordatorio' : 'Nuevo recordatorio') +
-    '<form class="sh-form" data-form="sh-rem" novalidate>' +
-      '<div class="field"><label class="lbl" for="rf-t">Recordatorio</label><input type="text" id="rf-t" data-rf="t" maxlength="120" autocomplete="off" value="' + esc(f.t) + '"></div>' +
-      '<div class="field"><label class="lbl" for="rf-n">Notas</label><textarea id="rf-n" data-rf="n" rows="2" maxlength="500">' + esc(f.n) + '</textarea></div>' +
-      '<div class="field"><label class="lbl" for="rf-l">Lista</label><select id="rf-l" data-rf="l">' + rlists().map(l => '<option value="' + esc(l.id) + '"' + (l.id === f.l ? ' selected' : '') + '>' + esc(l.name) + '</option>').join('') + '</select></div>' +
-      '<div class="field"><span class="lbl">Fecha</span><div class="toggles">' + quick.map(q => tg('rf-date', q[0], f.due === q[2], q[1])).join('') + '</div></div>' +
-      '<div class="grid2"><div class="field"><label class="lbl" for="rf-due">Día</label><input type="date" id="rf-due" data-rf="due" value="' + esc(f.due) + '"></div>' +
-      '<div class="field"><label class="lbl" for="rf-time">Hora (opcional)</label><input type="time" id="rf-time" data-rf="time" value="' + esc(f.time) + '"' + (f.due ? '' : ' disabled') + '></div></div>' +
-      '<div class="field"><span class="lbl">Repetir</span><div class="toggles">' + REP.map(x => tg('rf-rep', x.k || 'no', f.rf === x.k, x.label)).join('') + '</div></div>' +
-      (f.rf && f.rf !== 'wd' ? '<div class="field"><label class="lbl" for="rf-ri">Cada cuántos ' + unit[1] + '</label><input type="text" inputmode="numeric" id="rf-ri" data-rf="ri" autocomplete="off" value="' + esc(f.ri) + '"></div>' : '') +
-      (f.rf === 'w' ? '<div class="field"><span class="lbl">Qué días (opcional)</span><div class="toggles days">' + WD_ORDER.map(n => tg('rf-day', n, f.rdays.indexOf(n) >= 0, WD1[n], ' aria-label="' + WD[n] + '"')).join('') + '</div></div>' : '') +
-      (f.rf ? '<div class="field"><span class="lbl">Dejar de repetir</span><div class="toggles">' + tg('rf-end', 'never', f.endT === 'never', 'Nunca') + tg('rf-end', 'date', f.endT === 'date', 'En una fecha') + tg('rf-end', 'count', f.endT === 'count', 'Después de varias veces') + '</div></div>' +
-        (f.endT === 'date' ? '<div class="field"><label class="lbl" for="rf-endd">Último día</label><input type="date" id="rf-endd" data-rf="endD" value="' + esc(f.endD) + '"></div>' : '') +
-        (f.endT === 'count' ? '<div class="field"><label class="lbl" for="rf-endn">Cuántas veces en total</label><input type="text" inputmode="numeric" id="rf-endn" data-rf="endN" autocomplete="off" value="' + esc(f.endN) + '"></div>' : '') : '') +
-      '<div class="field"><span class="lbl">Prioridad</span><div class="toggles">' + [[0, 'Ninguna'], [1, 'Baja'], [2, 'Media'], [3, 'Alta']].map(p => tg('rf-pri', p[0], f.pri === p[0], p[1])).join('') + '</div></div>' +
-      '<button type="button" class="switch" id="rf-flag" data-act="rf-flag" aria-pressed="' + !!f.flag + '"><span class="sw"></span>Marcado</button>' +
-      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="rf-save">' + (st.id ? 'Guardar cambios' : 'Crear recordatorio') + '</button>' +
-      (st.id ? '<button type="button" class="btn sm ' + (armed ? 'danger' : 'quiet') + '" id="rf-del" data-act="rem-del">' + (armed ? 'Toca otra vez para borrarlo' : 'Borrar recordatorio') + '</button>' : '') +
-    '</form>';
 }

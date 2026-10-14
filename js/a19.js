@@ -1,4 +1,60 @@
 'use strict';
+function remQuickAdd() {
+  if (S.readonly || !S.loaded.reminders) return;
+  const inp = $('#rq-in');
+  const t = String(inp ? inp.value : '').trim().slice(0, 120);
+  if (!t) return;
+  if (S.reminders.length >= MAX_REMS) { toast('Llegaste al máximo de recordatorios. Borra los completados.'); return; }
+  const v = S.hab.rview, tk = todayKey();
+  const isList = ['today', 'scheduled', 'all', 'flagged', 'done', 'home'].indexOf(v) < 0;
+  const data = { t, n: '', l: isList ? v : 'inbox', due: v === 'today' || v === 'scheduled' ? tk : null, time: null, rep: null, flag: v === 'flagged', pri: 0, done: false, createdAt: Date.now() };
+  const id = uid();
+  S.reminders.push(Object.assign({ id }, data));
+  putDoc('reminders/' + id, data);
+  delete S.drafts['rq-in'];
+  renderHabitos();
+  focusEl('rq-in');
+}
+function openRem(id) {
+  if (S.readonly || !S.loaded.reminders) return;
+  const r = id ? S.reminders.find(x => x.id === id) : null;
+  if (id && !r) return;
+  const v = S.hab.rview, tk = todayKey();
+  const isList = ['today', 'scheduled', 'all', 'flagged', 'done', 'home'].indexOf(v) < 0;
+  const rp = r && r.rep ? r.rep : {};
+  const e = rp.end || {};
+  const f = r ? { t: r.t, n: r.n || '', l: r.l || 'inbox', due: r.due || '', time: r.time || '', rf: rp.f || '', ri: String(rp.i || 1), rdays: Array.isArray(rp.days) ? rp.days.slice() : [], endT: e.t || 'never', endD: e.d || '', endN: String(e.n || 5), flag: !!r.flag, pri: r.pri || 0 }
+    : { t: '', n: '', l: isList ? v : 'inbox', due: v === 'today' || v === 'scheduled' ? tk : '', time: '', rf: '', ri: '1', rdays: [], endT: 'never', endD: '', endN: '5', flag: v === 'flagged', pri: 0 };
+  openSheet({ kind: 'rem', step: 'edit', id: id || null, f, err: '' });
+  if (!id) focusEl('rf-t');
+}
+function shRemHTML(st) {
+  const f = st.f, tk = todayKey(), armed = S.confirmDel === 'rdel:' + st.id;
+  const tg = (act, v, on, label, extra) => '<button type="button" class="tgl" id="' + act + '-' + v + '" data-act="' + act + '" data-v="' + v + '" aria-pressed="' + !!on + '"' + (extra || '') + '>' + label + '</button>';
+  const nextMon = addDays(tk, ((8 - parseKey(tk).getDay()) % 7) || 7);
+  const quick = [['today', 'Hoy', tk], ['tomorrow', 'Mañana', addDays(tk, 1)], ['nextweek', 'Próx. lunes', nextMon], ['none', 'Sin fecha', '']];
+  const unit = { d: ['día', 'días'], w: ['semana', 'semanas'], m: ['mes', 'meses'], y: ['año', 'años'] }[f.rf];
+  return sheetTop(st.id ? 'Editar recordatorio' : 'Nuevo recordatorio') +
+    '<form class="sh-form" data-form="sh-rem" novalidate>' +
+      '<div class="field"><label class="lbl" for="rf-t">Recordatorio</label><input type="text" id="rf-t" data-rf="t" maxlength="120" autocomplete="off" value="' + esc(f.t) + '"></div>' +
+      '<div class="field"><label class="lbl" for="rf-n">Notas</label><textarea id="rf-n" data-rf="n" rows="2" maxlength="500">' + esc(f.n) + '</textarea></div>' +
+      '<div class="field"><label class="lbl" for="rf-l">Lista</label><select id="rf-l" data-rf="l">' + rlists().map(l => '<option value="' + esc(l.id) + '"' + (l.id === f.l ? ' selected' : '') + '>' + esc(l.name) + '</option>').join('') + '</select></div>' +
+      '<div class="field"><span class="lbl">Fecha</span><div class="toggles">' + quick.map(q => tg('rf-date', q[0], f.due === q[2], q[1])).join('') + '</div></div>' +
+      '<div class="grid2"><div class="field"><label class="lbl" for="rf-due">Día</label><input type="date" id="rf-due" data-rf="due" value="' + esc(f.due) + '"></div>' +
+      '<div class="field"><label class="lbl" for="rf-time">Hora (opcional)</label><input type="time" id="rf-time" data-rf="time" value="' + esc(f.time) + '"' + (f.due ? '' : ' disabled') + '></div></div>' +
+      '<div class="field"><span class="lbl">Repetir</span><div class="toggles">' + REP.map(x => tg('rf-rep', x.k || 'no', f.rf === x.k, x.label)).join('') + '</div></div>' +
+      (f.rf && f.rf !== 'wd' ? '<div class="field"><label class="lbl" for="rf-ri">Cada cuántos ' + unit[1] + '</label><input type="text" inputmode="numeric" id="rf-ri" data-rf="ri" autocomplete="off" value="' + esc(f.ri) + '"></div>' : '') +
+      (f.rf === 'w' ? '<div class="field"><span class="lbl">Qué días (opcional)</span><div class="toggles days">' + WD_ORDER.map(n => tg('rf-day', n, f.rdays.indexOf(n) >= 0, WD1[n], ' aria-label="' + WD[n] + '"')).join('') + '</div></div>' : '') +
+      (f.rf ? '<div class="field"><span class="lbl">Dejar de repetir</span><div class="toggles">' + tg('rf-end', 'never', f.endT === 'never', 'Nunca') + tg('rf-end', 'date', f.endT === 'date', 'En una fecha') + tg('rf-end', 'count', f.endT === 'count', 'Después de varias veces') + '</div></div>' +
+        (f.endT === 'date' ? '<div class="field"><label class="lbl" for="rf-endd">Último día</label><input type="date" id="rf-endd" data-rf="endD" value="' + esc(f.endD) + '"></div>' : '') +
+        (f.endT === 'count' ? '<div class="field"><label class="lbl" for="rf-endn">Cuántas veces en total</label><input type="text" inputmode="numeric" id="rf-endn" data-rf="endN" autocomplete="off" value="' + esc(f.endN) + '"></div>' : '') : '') +
+      '<div class="field"><span class="lbl">Prioridad</span><div class="toggles">' + [[0, 'Ninguna'], [1, 'Baja'], [2, 'Media'], [3, 'Alta']].map(p => tg('rf-pri', p[0], f.pri === p[0], p[1])).join('') + '</div></div>' +
+      '<button type="button" class="switch" id="rf-flag" data-act="rf-flag" aria-pressed="' + !!f.flag + '"><span class="sw"></span>Marcado</button>' +
+      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
+      '<button type="submit" class="btn" id="rf-save">' + (st.id ? 'Guardar cambios' : 'Crear recordatorio') + '</button>' +
+      (st.id ? '<button type="button" class="btn sm ' + (armed ? 'danger' : 'quiet') + '" id="rf-del" data-act="rem-del">' + (armed ? 'Toca otra vez para borrarlo' : 'Borrar recordatorio') + '</button>' : '') +
+    '</form>';
+}
 function remFormSync() {
   const st = S.sheet;
   if (!st || st.kind !== 'rem') return;
@@ -184,185 +240,4 @@ function shGymHTML(st) {
       '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
       '<button type="submit" class="btn" id="gym-save"' + (S.readonly ? ' disabled' : '') + '>' + (st.editId ? 'Guardar cambios' : 'Guardar entrenamiento') + '</button>' +
     '</form>';
-}
-function shGymPickHTML(st) {
-  const q = norm(st.q || ''), qt = q ? q.split(' ') : [];
-  const btn = n => '<button type="button" class="fres" data-act="gym-pick" data-n="' + esc(n) + '"><span class="fres-n">' + esc(n) + '</span></button>';
-  let h = '';
-  if (q) {
-    const found = [];
-    for (const [g, names] of GYM_LIB) for (const n of names) if (matchScore(n + ' ' + g, q, qt) >= 0) found.push(n);
-    h = (found.length ? '<div class="fres-list">' + found.map(btn).join('') + '</div>' : '') +
-      '<div class="fres-list"><button type="button" class="fres" id="gym-custom" data-act="gym-pick" data-n="' + esc(String(st.q).trim().slice(0, 50)) + '"><span class="fres-n">Agregar «' + esc(String(st.q).trim().slice(0, 50)) + '»</span><span class="fres-m">Ejercicio con el nombre que escribiste</span></button></div>';
-  } else h = GYM_LIB.map(([g, names]) => '<details class="cat"><summary>' + esc(g) + ' <small>' + names.length + '</small></summary><div class="fres-list">' + names.map(btn).join('') + '</div></details>').join('');
-  return sheetTop('Agregar ejercicio', true) +
-    '<form data-form="gym-search" role="search" novalidate><label class="lbl sr" for="gym-q">Buscar ejercicio</label><input type="search" id="gym-q" data-gq="1" placeholder="Busca o escribe: sentadilla, press, curl…" value="' + esc(st.q || '') + '" autocomplete="off" enterkeyhint="search"></form>' +
-    '<div id="gym-res">' + h + '</div>';
-}
-function gymSync() {
-  const st = S.sheet;
-  if (!st || st.kind !== 'gym' || st.step !== 'gym') return;
-  const n = $('#gy-name'), m = $('#gy-min');
-  if (n) st.name = n.value;
-  if (m) st.min = m.value;
-  for (const el of $$('[data-gs]', $('#sheet-card'))) {
-    const [i, j, f] = el.dataset.gs.split(':');
-    if (st.ex[i] && st.ex[i].sets[j]) st.ex[i].sets[j][f] = el.value;
-  }
-}
-function gymSave() {
-  const st = S.sheet;
-  if (!st || st.kind !== 'gym' || S.readonly) return;
-  gymSync();
-  const ms = String(st.min || '').trim(), min = /^\d{1,3}$/.test(ms) ? parseInt(ms, 10) : NaN;
-  const lv = GYM_LEVELS.find(l => l.k === st.lv) || GYM_LEVELS[1];
-  let err = '';
-  if (!(min > 0 && min <= 600)) err = 'Escribe la duración en minutos (de 1 a 600).';
-  const ex = [];
-  if (!err) for (const x of st.ex.slice(0, 25)) {
-    const sets = [];
-    for (const s of x.sets.slice(0, 15)) {
-      const rs = String(s.r || '').trim(), ks = String(s.kg || '').trim();
-      if (!rs && !ks) continue;
-      const r = rs ? (/^\d{1,3}$/.test(rs) ? parseInt(rs, 10) : NaN) : 0, kg = ks ? parseNum(ks) : null;
-      if (rs && !(r >= 0 && r <= 500)) { err = x.n + ': las repeticiones son un número entero de 0 a 500.'; break; }
-      if (ks && !(isFinite(kg) && kg >= 0 && kg <= 1000)) { err = x.n + ': los kilos van de 0 a 1000.'; break; }
-      sets.push(kg == null ? { r } : { r, kg: r1(kg) });
-    }
-    if (err) break;
-    ex.push({ n: String(x.n).slice(0, 50), sets });
-  }
-  if (err) { sheetErr(st, err); return; }
-  const title = String(st.name || '').trim().slice(0, 50);
-  const item = { id: st.editId || uid(), k: 'gym', name: 'Gimnasio' + (title ? ': ' + title : ''), title, met: lv.met, lv: lv.k, min, hi: false, ex, at: Date.now() };
-  let full = false;
-  const ok = mutDay(S.viewKey, d => {
-    const l = Array.isArray(d.acts) ? d.acts.slice() : [];
-    const i = st.editId ? l.findIndex(a => a.id === st.editId) : -1;
-    if (i >= 0) { item.at = l[i].at || item.at; l[i] = item; }
-    else if (l.length >= MAX_ACTS) { full = true; return; }
-    else l.push(item);
-    d.acts = l;
-  });
-  if (!ok) return;
-  if (full) { sheetErr(st, 'Llegaste al máximo de ejercicios para un día.'); return; }
-  let rtMsg = '';
-  if (st.saveRt && !st.editId) {
-    if (!title) rtMsg = ' Para guardarlo como rutina, ponle nombre.';
-    else if (S.routines.length >= MAX_ROUTINES) rtMsg = ' No guardé la rutina: ya tienes ' + MAX_ROUTINES + '.';
-    else if (S.loaded.routines) {
-      const id = uid(), data = { name: title, min, lv: lv.k, ex: ex.map(x => ({ n: x.n, sets: x.sets })), createdAt: Date.now() };
-      S.routines.push(Object.assign({ id }, data));
-      putDoc('routines/' + id, data);
-      rtMsg = ' Rutina guardada.';
-    }
-  }
-  closeSheet();
-  renderHoy(['act', 'meters']);
-  toast((st.editId ? 'Entrenamiento actualizado.' : 'Entrenamiento guardado: ' + min + ' min.') + rtMsg);
-}
-
-/* ---------- comida: combinaciones agrupadas ---------- */
-
-/* ---------- análisis con IA ---------- */
-const ANA_P = [{ k: 'day', label: 'Día', n: 1, msg: 'mi día de hoy' }, { k: 'week', label: 'Semana', n: 7, msg: 'mi última semana' }, { k: 'month', label: 'Mes', n: 30, msg: 'mi último mes' }];
-const anaP = k => ANA_P.find(p => p.k === k) || ANA_P[1];
-function anaDays(period) { const n = anaP(period).n, tk = todayKey(), out = []; for (let i = n - 1; i >= 0; i--) out.push(addDays(tk, -i)); return out; }
-function guideBrief(max) {
-  const parts = [];
-  for (const sec of ['avoid', 'rules', 'meals']) {
-    const L = guideList(sec);
-    if (!L.length) continue;
-    const lbl = (GUIDE_SECTIONS.find(x => x.k === sec) || {}).label || sec;
-    parts.push(lbl.toUpperCase() + ': ' + L.map(it => it.t + (it.d ? ' (' + it.d + ')' : '')).join('; '));
-  }
-  return parts.join(' || ').slice(0, max);
-}
-function anaContext(period, kind) {
-  const p = prof(), tk = todayKey(), days = anaDays(period), L = [];
-  const tca = hasCond('tca'); /* trastorno de la conducta alimentaria: sin calorías, nutrientes, peso ni pasos en el análisis */
-  const age = ageOn(p.birth, tk), w = latestOn('weight', tk), h = latestOn('height', tk);
-  L.push('Periodo: ' + (period === 'day' ? 'hoy, ' + fmtDay(tk) + ' (el día aún no termina)' : 'del ' + fmtShort(days[0]) + ' al ' + fmtShort(tk) + ' (' + days.length + ' días; hoy aún no termina)') + '.');
-  L.push('Persona: ' + (age != null ? age + ' años' : 'edad sin dato') + ', ' + (p.sex === 'm' ? 'hombre' : p.sex === 'f' ? 'mujer' : 'sexo sin dato') + ', ' + (h ? fmtNum(h, 1) + ' cm' : 'estatura sin dato') + ', ' + (w ? fmtNum(w, 1) + ' kg' : 'peso sin dato') + '. Objetivo: ' + (goalLabel(p.goal) || 'sin definir') + '. Actividad: ' + ((labelsOf(ACTIVITY, [p.activity])[0] || 'sin dato').toLowerCase()) + '. Alimentación: ' + (labelsOf(DIETS, p.diet).join(', ').toLowerCase() || 'sin restricciones') + '. Condiciones: ' + (labelsOf(CONDITIONS, p.cond).join(', ').toLowerCase() || 'ninguna registrada') + '.');
-  const s = S.settings, g = s.nutri || {};
-  const gl = NUTRIENTS.filter(n => g[n.k] != null).map(n => n.label.toLowerCase() + ' ' + ({ meta: 'meta', max: 'máximo', min: 'mínimo' })[goalKind(n.k)] + ' ' + fmtNut(n.k, g[n.k]) + ' ' + n.unit);
-  if (tca) L.push('Metas: agua ' + fmtInt(s.waterGoal) + ' ml; sueño ' + fmtNum(s.sleepGoal, 1) + ' h. (Tiene un trastorno de la conducta alimentaria: no hables de calorías, nutrientes, porciones, peso ni pasos.)');
-  else L.push('Metas: ' + (gl.length ? gl.join('; ') : 'sin metas de nutrientes') + '; agua ' + fmtInt(s.waterGoal) + ' ml; sueño ' + fmtNum(s.sleepGoal, 1) + ' h' + (s.stepGoal ? '; pasos ' + fmtInt(s.stepGoal) : '') + '.');
-  const meds = S.meds.filter(m => m.active).map(m => m.name).filter(Boolean);
-  if (meds.length) L.push('Medicamentos activos: ' + meds.join(', ').slice(0, 300) + '.');
-  const gb = guideBrief(kind === 'hab' ? 900 : 2200);
-  if (gb) L.push('Indicaciones de sus médicos (mandan sobre cualquier recomendación general): ' + gb);
-  const hl = habs();
-  if (kind !== 'hab') {
-    L.push('Registro día por día:');
-    const foods = new Map();
-    let fDays = 0, kSum = 0, outSum = 0, outN = 0, pSum = 0, wSum = 0, wN = 0, sSum = 0, sN = 0, stSum = 0, stN = 0, exMin = 0, exN = 0;
-    const hit = { kcal: 0, p: 0, water: 0, sleep: 0, steps: 0 };
-    for (const k of days) {
-      const d = S.days[k];
-      const label = '- ' + fmtDay(k) + ': ';
-      if (!d) { L.push(label + 'sin registros'); continue; }
-      const nu = dayNutri(d), en = energyFor(k, d), bits = [];
-      if (nu.count && tca) {
-        fDays++;
-        const ms = []; for (const e of d.food) if (e.m && ms.indexOf(e.m) < 0) ms.push(e.m);
-        bits.push('registró comidas (' + ms.join(', ') + ')');
-        for (const e of d.food) { const key = String(e.name || '').slice(0, 50); const f = foods.get(key) || { n: 0, g: 0, kcal: 0 }; f.n++; foods.set(key, f); }
-      } else if (nu.count) {
-        fDays++; kSum += nu.kcal; pSum += nu.p;
-        bits.push('comió ' + fmtInt(nu.kcal) + ' kcal (proteína ' + fmtNut('p', nu.p) + ' g, carbohidratos ' + fmtNut('c', nu.c) + ' g, grasas ' + fmtNut('f', nu.f) + ' g, saturadas ' + fmtNut('sf', nu.sf) + ' g, azúcar ' + fmtNut('s', nu.s) + ' g, fibra ' + fmtNut('fi', nu.fi) + ' g, sodio ' + fmtInt(nu.na) + ' mg)');
-        for (const e of d.food) { const key = String(e.name || '').slice(0, 50); const f = foods.get(key) || { n: 0, g: 0, kcal: 0 }; f.n++; f.g += Number(e.g) || 0; f.kcal += Number(e.n && e.n.kcal) || 0; foods.set(key, f); }
-        if (g.kcal) { const r = nu.kcal / g.kcal; if (goalKind('kcal') === 'max' ? r <= 1.02 : (r >= 0.9 && r <= 1.1)) hit.kcal++; }
-        if (g.p) { if (goalKind('p') === 'max' ? nu.p <= g.p : nu.p >= g.p) hit.p++; }
-      } else bits.push('sin comida registrada');
-      if (en.total != null && !tca) { bits.push('gasto estimado ' + fmtInt(r10(en.total)) + ' kcal' + (nu.count ? ' (balance ' + (nu.kcal - en.total >= 0 ? '+' : '−') + fmtInt(Math.abs(r10(nu.kcal - en.total))) + ')' : '')); outSum += en.total; outN++; }
-      const wa = sum(d.water); if (wa) { bits.push('agua ' + fmtInt(wa) + ' ml'); wSum += wa; wN++; if (wa >= (Number(s.waterGoal) || 2000)) hit.water++; }
-      const sl = sleepHours(d.sleep); if (sl != null) { bits.push('sueño ' + fmtNum(sl, 1) + ' h'); sSum += sl; sN++; if (sl >= (Number(s.sleepGoal) || 8)) hit.sleep++; }
-      if (d.steps && !tca) { bits.push('pasos ' + fmtInt(d.steps)); stSum += d.steps; stN++; if (s.stepGoal && d.steps >= s.stepGoal) hit.steps++; }
-      const acts = Array.isArray(d.acts) ? d.acts : [];
-      if (acts.length) {
-        bits.push('ejercicio: ' + acts.map(a => String(a.name || '').slice(0, 40) + ' ' + a.min + ' min' + (a.k === 'gym' && a.ex && a.ex.length ? ' [' + a.ex.map(x => x.n + ' ' + setsText(x.sets)).join('; ').slice(0, 260) + ']' : '')).join(', '));
-        exN++; exMin += acts.reduce((t, a) => t + (Number(a.min) || 0), 0);
-      }
-      const hs = habDayStats(k); if (hs.due) bits.push('hábitos ' + hs.done + '/' + hs.due);
-      const ds = dosesFor(k); if (ds.length) bits.push('medicamentos ' + ds.filter(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken').length + '/' + ds.length);
-      if (d.energy || d.mood) bits.push('energía ' + (d.energy || '–') + '/5, ánimo ' + (d.mood || '–') + '/5');
-      L.push(label + bits.join(' · '));
-    }
-    if (fDays && !tca) L.push('Promedio en ' + plural(fDays, 'día', 'días') + ' con comida registrada: ' + fmtInt(kSum / fDays) + ' kcal y ' + fmtNut('p', pSum / fDays) + ' g de proteína.' + (outN ? ' Gasto promedio estimado: ' + fmtInt(r10(outSum / outN)) + ' kcal.' : ''));
-    const hits = [];
-    if (tca && fDays) hits.push('comidas registradas ' + fDays + ' de ' + days.length + ' días');
-    if (g.kcal && fDays && !tca) hits.push('calorías en meta ' + hit.kcal + ' de ' + fDays + ' días');
-    if (g.p && fDays && !tca) hits.push('proteína en meta ' + hit.p + ' de ' + fDays);
-    if (wN) hits.push('agua en meta ' + hit.water + ' de ' + wN + ' (promedio ' + fmtInt(wSum / wN) + ' ml)');
-    if (sN) hits.push('sueño en meta ' + hit.sleep + ' de ' + sN + ' noches (promedio ' + fmtNum(sSum / sN, 1) + ' h)');
-    if (stN) hits.push('pasos ' + (s.stepGoal ? 'en meta ' + hit.steps + ' de ' + stN + ', ' : '') + 'promedio ' + fmtInt(stSum / stN));
-    if (exN) hits.push('ejercicio ' + plural(exN, 'día', 'días') + ', ' + fmtInt(exMin) + ' min en total');
-    if (hits.length) L.push('Cumplimiento: ' + hits.join('; ') + '.');
-    const top = Array.from(foods.entries()).sort((a, b) => b[1].n - a[1].n).slice(0, 15);
-    if (top.length) L.push('Alimentos más frecuentes: ' + top.map(([n, f]) => n + ' (' + f.n + (f.n === 1 ? ' vez' : ' veces') + (tca ? '' : ', ' + fmtInt(f.kcal) + ' kcal en total') + ')').join('; ') + '.');
-    const ws = S.measures.filter(m => hasNum(m.weight)).sort(byDate);
-    const inP = ws.filter(m => m.date >= days[0]);
-    if (ws.length && !tca) L.push('Peso: ' + (inP.length > 1 ? fmtNum(inP[0].weight, 1) + ' kg (' + fmtShort(inP[0].date) + ') → ' + fmtNum(inP[inP.length - 1].weight, 1) + ' kg (' + fmtShort(inP[inP.length - 1].date) + ')' : 'último ' + fmtNum(ws[ws.length - 1].weight, 1) + ' kg (' + fmtShort(ws[ws.length - 1].date) + ')') + '.');
-  }
-  if (hl.length) {
-    L.push('Hábitos:');
-    for (const hb of hl) {
-      let cnt;
-      if (habFlex(hb)) {
-        let done = 0; for (const k of days) if (habDone(hb, k)) done++;
-        const cl = habClosed(hb, days[0], tk);
-        cnt = habProgText(hb, tk) + '; hecho ' + plural(done, 'vez', 'veces') + ' en el periodo' + (cl.total ? '; ' + (hb.freq === 'weekly' ? 'semanas' : 'meses') + ' completas cumplidas ' + cl.met + ' de ' + cl.total : '');
-      } else {
-        let due = 0, done = 0;
-        for (const k of days) if (habDueOn(hb, k)) { due++; if (habDone(hb, k)) done++; }
-        cnt = 'cumplido ' + done + ' de ' + due + ' días que tocaban';
-      }
-      L.push('- ' + hb.label + ' (' + habFreqText(hb).toLowerCase() + '): ' + cnt + '; ' + (habStreakText(hb, habStreak(hb, tk)) || 'sin racha') + (habRate(hb, tk) != null ? '; cumplimiento reciente ' + habRate(hb, tk) + ' %' : '') + (hb.end ? '; termina el ' + fmtShort(hb.end) : ''));
-    }
-  } else L.push('Hábitos: no tiene hábitos registrados.');
-  const doneR = S.reminders.filter(r => r.done && r.doneAt && keyOf(new Date(r.doneAt)) >= days[0]).length;
-  const overR = S.reminders.filter(r => !r.done && r.due && r.due < tk).length;
-  if (doneR || overR) L.push('Recordatorios: ' + doneR + ' completados en el periodo; ' + overR + ' vencidos sin hacer.');
-  return L.join('\n').slice(0, 14000);
 }

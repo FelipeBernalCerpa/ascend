@@ -1,4 +1,79 @@
 'use strict';
+function submitHabit(form) {
+  if (S.readonly || !S.loaded.habits) return;
+  const label = ((($('#hb-new', form) || {}).value) || '').trim().slice(0, 60);
+  const list = habitsList();
+  S.formErr.habit = !label ? 'Escribe el hábito.' : list.length >= MAX_HABITS ? 'Puedes tener hasta ' + MAX_HABITS + ' hábitos.' : list.some(x => norm(x.label) === norm(label)) ? 'Ese hábito ya está.' : '';
+  if (S.formErr.habit) { renderAjustes(); return; }
+  saveHabits(list.concat({ k: 'c-' + uid(), label }));
+  delete S.drafts['hb-new'];
+  renderAjustes();
+  focusEl('hb-new');
+}
+function planProfileHTML() {
+  const p = prof(), dis = S.readonly || !S.loaded.profile ? ' disabled' : '';
+  const bits = [goalLabel(p.goal), labelsOf(CONDITIONS, p.cond).join(', ')].filter(Boolean);
+  return '<div class="row plan-actions">' + (bits.length ? '<span class="plan-sub">' + esc(bits.join(' · ')) + '</span>' : '') +
+    '<button type="button" class="btn sm ghost" id="prof-plan" data-act="plan-open"' + dis + '>' + (profileGoal() ? 'Recalcular mi plan' : 'Armar mi plan') + '</button></div>';
+}
+function privacyInner() {
+  return '<p>Tus registros (comida, medicamentos, medidas, exámenes y notas) se guardan en tu cuenta, en servidores de Supabase. Las reglas de la base de datos hacen que solo tu cuenta pueda leerlos o cambiarlos.</p>' +
+    '<p>Puedes descargar todos tus datos o borrarlos en Ajustes cuando quieras.</p>' +
+    '<p>Si usas el asistente con IA, tu mensaje y un resumen de tu plan y tus registros se envían a Anthropic (Claude) solo para responderte.</p>' +
+    '<p>Ascend es una herramienta de registro y educación: no reemplaza a tu médico, a tu nutricionista ni ningún tratamiento.</p>' +
+    '<p>Si tienes menos de 18 años, úsala con permiso de tu mamá, papá o acudiente.</p>';
+}
+function bmiNoteHTML(ser) {
+  const age = userAge(), last = ser && ser.length ? ser[ser.length - 1] : null;
+  let cat = '';
+  if (last && age != null && age >= 18) {
+    const b = last.bmi, c = b < 18.5 ? ['warn', 'Bajo peso'] : b < 25 ? ['ok', 'Peso saludable'] : b < 30 ? ['warn', 'Sobrepeso'] : ['crit', 'Obesidad'];
+    cat = '<p class="pill ' + c[0] + ' next">' + c[1] + '</p>';
+  }
+  return cat + '<p class="hint">Se calcula con cada peso y la estatura más reciente. ' + (age != null && age < 18
+    ? 'Antes de los 18 años el IMC se lee con las tablas de la OMS por edad y sexo; la interpretación la hace tu médico o nutricionista.'
+    : 'En adultos: menos de 18,5 es bajo peso, de 18,5 a 24,9 saludable, de 25 a 29,9 sobrepeso y 30 o más obesidad. No distingue músculo de grasa.') + '</p>';
+}
+
+/* ---------- asistente con IA ---------- */
+const PROP_LABELS = { kcal: ['Calorías', 'kcal'], p: ['Proteína', 'g'], c: ['Carbohidratos', 'g'], s: ['Azúcar máx.', 'g'], fi: ['Fibra mín.', 'g'], f: ['Grasas', 'g'], sf: ['Saturadas máx.', 'g'], na: ['Sodio máx.', 'mg'], waterGoal: ['Agua', 'ml'], sleepGoal: ['Sueño', 'h'], stepGoal: ['Pasos', ''] };
+function fmtAiText(t) {
+  return esc(String(t || '')).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/^[-*•] /gm, '• ').replace(/\n/g, '<br>');
+}
+/* mínimo de calorías que Ascend acepta de una propuesta: menores de 18, nunca por debajo de su gasto; adultos, nunca por debajo de 1.200 (mujeres) o 1.500 (hombres) ni más de 500 bajo su gasto */
+function kcalFloor() {
+  const p = prof(), age = userAge(), tk = todayKey();
+  let maint = p.plan && Number(p.plan.maint) > 0 ? Number(p.plan.maint) : null;
+  if (!maint) {
+    const w = latestOn('weight', tk), h = latestOn('height', tk);
+    if (w && h && p.birth && (p.sex === 'm' || p.sex === 'f')) {
+      const r = computePlan({ sex: p.sex, birth: p.birth, weight: String(w), height: String(h), goal: 'mantener', activity: ACTIVITY.some(a => a.k === p.activity) ? p.activity : 'poca', cond: [], diet: [] });
+      if (!r.err) maint = r.maint;
+    }
+  }
+  if (age == null || age < 18) return maint ? Math.round(maint * 0.95) : Infinity;
+  return Math.max(p.sex === 'f' ? 1200 : 1500, maint ? maint - 500 : 0);
+}
+function proposalCheck(pr) {
+  const out = {}, skipped = [];
+  const LAB = { kcal: 'las calorías', p: 'la proteína', c: 'los carbohidratos', s: 'el azúcar', fi: 'la fibra', f: 'las grasas', sf: 'las saturadas', na: 'el sodio', waterGoal: 'el agua' };
+  const block = new Set();
+  if (hasCond('tca')) NK.filter(k => k !== 'na').concat(['waterGoal', 'stepGoal']).forEach(k => block.add(k));
+  if (hasCond('renal')) ['p', 'na', 'waterGoal'].forEach(k => block.add(k));
+  if (hasCond('diabetes')) block.add('c');
+  if (hasCond('embarazo')) ['kcal', 'c', 'f', 'sf', 's'].forEach(k => block.add(k));
+  const range = { waterGoal: [500, 6000], sleepGoal: [5, 12], stepGoal: [1000, 30000] };
+  for (const k of Object.keys(PROP_LABELS)) {
+    let v = Number(pr && pr[k]);
+    if (!pr || pr[k] == null || !isFinite(v) || v <= 0) continue;
+    if (range[k] && !(v >= range[k][0] && v <= range[k][1])) continue;
+    if (block.has(k)) { skipped.push(LAB[k]); continue; }
+    if (k === 'kcal' && v < kcalFloor()) { skipped.push('las calorías (quedaban por debajo de lo seguro para ti)'); continue; }
+    if (k === 'na' && hasCond('hta')) v = Math.min(v, 1500);
+    out[k] = k === 'kcal' || k === 'na' || k === 'waterGoal' || k === 'stepGoal' ? Math.round(v) : r1(v);
+  }
+  return { out, skipped: hasCond('tca') ? [] : skipped };
+}
 function proposalHTML(pr, i, applied) {
   const chk = proposalCheck(pr), keys = Object.keys(chk.out);
   const rows = keys.map(k => '<span class="pv"><span>' + PROP_LABELS[k][0] + '</span><b>' + (k === 'sleepGoal' ? fmtNum(chk.out[k], 1) : fmtInt(chk.out[k])) + (PROP_LABELS[k][1] ? ' ' + PROP_LABELS[k][1] : '') + '</b></span>').join('');
@@ -218,108 +293,3 @@ const monthEnd = k => { const d = parseKey(k); return keyOf(new Date(d.getFullYe
 const clampInt = (v, lo, hi, fb) => { const n = parseInt(v, 10); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fb; };
 const plural = (n, a, b) => n + ' ' + (n === 1 ? a : b);
 const dayWord = k => { const tk = todayKey(); return k === tk ? 'Hoy' : k === addDays(tk, 1) ? 'Mañana' : k === addDays(tk, -1) ? 'Ayer' : fmtDay(k); };
-async function authToken() {
-  try { const s = await sb.auth.getSession(); return s && s.data && s.data.session ? s.data.session.access_token || '' : ''; } catch (e) { return ''; }
-}
-
-/* ---------- hábitos: modelo ---------- */
-const HFREQ = [
-  { k: 'daily', label: 'Todos los días' },
-  { k: 'days', label: 'Algunos días' },
-  { k: 'weekly', label: 'Veces por semana' },
-  { k: 'monthly', label: 'Veces al mes' }
-];
-function habNorm(h) {
-  const freq = HFREQ.some(f => f.k === h.freq) ? h.freq : 'daily';
-  let days = Array.isArray(h.days) ? h.days.filter(n => Number.isInteger(n) && n >= 0 && n <= 6) : [];
-  if (freq === 'days' && !days.length) days = [1, 2, 3, 4, 5];
-  const times = clampInt(h.times, 1, freq === 'monthly' ? 31 : 7, freq === 'monthly' ? 4 : 3);
-  return { k: String(h.k), label: String(h.label || ''), freq, days: freq === 'days' ? days : [], times, start: isKey(h.start) ? h.start : '', end: isKey(h.end) ? h.end : '', remind: isHM(h.remind) ? h.remind : '', note: String(h.note || '').slice(0, 200), createdAt: h.createdAt || 0 };
-}
-function habs() { return habitsList().map(habNorm); }
-const habFlex = h => h.freq === 'weekly' || h.freq === 'monthly';
-function habActive(h, k) { return (!h.start || k >= h.start) && (!h.end || k <= h.end); }
-function habDone(h, k) { const d = S.days[k]; return !!(d && d.boost && d.boost[h.k]); }
-function habPeriod(h, k) { return h.freq === 'weekly' ? [weekStart(k), addDays(weekStart(k), 6)] : h.freq === 'monthly' ? [monthStart(k), monthEnd(k)] : [k, k]; }
-function habCount(h, a, b) { let n = 0; for (let k = a; k <= b; k = addDays(k, 1)) if (habDone(h, k)) n++; return n; }
-/* el día está en el plan del hábito (los de veces por semana o mes sirven cualquier día) */
-function habScheduled(h, k) {
-  if (!habActive(h, k)) return false;
-  return h.freq === 'days' ? h.days.indexOf(parseKey(k).getDay()) >= 0 : true;
-}
-/* toca ese día: los flexibles dejan de tocar cuando ya se cumplieron las veces del periodo */
-function habDueOn(h, k) {
-  if (!habScheduled(h, k)) return false;
-  if (!habFlex(h)) return true;
-  if (habDone(h, k)) return true;
-  const a = habPeriod(h, k)[0];
-  return (k > a ? habCount(h, a, addDays(k, -1)) : 0) < h.times;
-}
-/* veces que pide un periodo, recortado a los días en que el hábito estuvo activo (un hábito que empieza a mitad de semana pide menos) */
-function habNeed(h, a, b) {
-  const x = h.start && h.start > a ? h.start : a, y = h.end && h.end < b ? h.end : b;
-  if (x > y) return 0;
-  let n = 0;
-  for (let k = x; k <= y && n < h.times; k = addDays(k, 1)) n++;
-  return n;
-}
-/* para estadísticas: un hábito diario o de algunos días cuenta el día que toca; uno flexible (veces por semana o mes)
-   cuenta solo los días que se hizo, y al cerrar el periodo suma las veces que faltaron */
-function habDayStats(k) {
-  let due = 0, done = 0;
-  const tk = todayKey();
-  for (const h of habs()) {
-    if (!habFlex(h)) { if (habDueOn(h, k)) { due++; if (habDone(h, k)) done++; } continue; }
-    if (!habActive(h, k)) continue;
-    if (habDone(h, k)) { due++; done++; }
-    const [a, b] = habPeriod(h, k), last = h.end && h.end < b ? h.end : b;
-    if (k === last && last < tk) { const miss = habNeed(h, a, b) - habCount(h, a, b); if (miss > 0) due += miss; }
-  }
-  return { due, done };
-}
-/* periodos cerrados (antes de hoy) que terminan entre from y to: cuántos se cumplieron */
-function habClosed(h, from, to) {
-  let met = 0, total = 0, a = habPeriod(h, to)[0];
-  const tk = todayKey();
-  for (let i = 0; i < 60; i++) {
-    const b = habPeriod(h, a)[1];
-    if (b < from) break;
-    if (b <= to && b < tk) { const need = habNeed(h, a, b); if (need) { total++; if (habCount(h, a, b) >= need) met++; } }
-    a = habPrevPeriod(h, a);
-  }
-  return { met, total };
-}
-/* primer día del hábito: su inicio o, en hábitos viejos sin fecha de inicio, la primera vez que se marcó */
-function habFrom(h) {
-  if (h.start) return h.start;
-  let f = '';
-  for (const k of Object.keys(S.days)) if ((!f || k < f) && habDone(h, k)) f = k;
-  return f;
-}
-function habPrevPeriod(h, a) { return h.freq === 'weekly' ? addDays(a, -7) : monthStart(addDays(a, -1)); }
-function habStreak(h, k) {
-  k = k || todayKey();
-  if (habFlex(h)) {
-    let n = 0;
-    const [a0, b0] = habPeriod(h, k), need0 = habNeed(h, a0, b0);
-    if (need0 && habCount(h, a0, b0 < k ? b0 : k) >= need0) n++;
-    let a = habPrevPeriod(h, a0);
-    for (let i = 0; i < 104; i++) {
-      const b = habPeriod(h, a)[1], need = habNeed(h, a, b);
-      if (!need) { if (h.start && b < h.start) break; a = habPrevPeriod(h, a); continue; }
-      if (habCount(h, a, b) >= need) n++; else break;
-      a = habPrevPeriod(h, a);
-    }
-    return n;
-  }
-  let n = 0, kk = k;
-  if (h.end && kk > h.end) kk = h.end; /* hábito terminado: su racha es la que tenía al terminar */
-  else if (habScheduled(h, kk) && !habDone(h, kk)) kk = addDays(kk, -1);
-  for (let i = 0; i < 1000; i++, kk = addDays(kk, -1)) {
-    if (h.start && kk < h.start) break;
-    if (!habActive(h, kk)) break;
-    if (!habScheduled(h, kk)) continue;
-    if (habDone(h, kk)) n++; else break;
-  }
-  return n;
-}

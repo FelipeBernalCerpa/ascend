@@ -1,4 +1,194 @@
 'use strict';
+function onInput(e) {
+  const t = e.target;
+  if (!t || !t.dataset) return;
+  if (extInput(t)) return;
+  if (t.hasAttribute('data-draft')) { S.drafts[t.id] = t.value; return; }
+  if (t.id === 'day-notes') { mutDay(S.viewKey, d => { d.notes = t.value; }); return; }
+  if (t.dataset.qAns) {
+    const q = S.questions.find(x => x.id === t.dataset.qAns);
+    if (q && !S.readonly) { q.answer = t.value; saver.queue('questions/' + q.id, strip(q), 700); }
+    return;
+  }
+  if (S.readonly) return;
+  if (t.dataset.set && S.loaded.settings) {
+    const k = t.dataset.set;
+    let v = t.value;
+    if (k === 'waterGoal') { const n = parseInt(String(v).replace(/\D/g, ''), 10); if (!n || n < 500 || n > 6000) return; v = n; }
+    else if (k === 'sleepGoal') { const n = parseNum(v); if (!isFinite(n) || n < 5 || n > 12) return; v = n; }
+    else if (!v) return;
+    S.settings[k] = v;
+    saveSettings();
+    return;
+  }
+  if (t.dataset.slotName && S.loaded.settings) { const k = t.dataset.slotName; if (!t.value.trim()) return; S.settings.slots[k].name = t.value.trim(); saveSettings(); return; }
+  if (t.dataset.slotTime && S.loaded.settings) { const k = t.dataset.slotTime; if (!t.value) return; S.settings.slots[k].time = t.value; saveSettings(); return; }
+  if (t.dataset.mdField && S.medDraft) { S.medDraft[t.dataset.mdField] = t.value; return; }
+}
+function onChange(e) {
+  const t = e.target;
+  if (!t || !t.dataset) return;
+  if (extChange(t)) return;
+  if (t.dataset.sleep) {
+    if (mutDay(S.viewKey, d => { d.sleep = Object.assign({}, d.sleep); if (t.value) d.sleep[t.dataset.sleep] = t.value; else delete d.sleep[t.dataset.sleep]; })) renderHoy(['sleep', 'meters']);
+    return;
+  }
+  if (t.id === 'lab-type') {
+    S.drafts['lab-type'] = t.value;
+    ['lab-unit', 'lab-low', 'lab-high', 'lab-name'].forEach(k => { delete S.drafts[k]; });
+    renderSalud();
+    return;
+  }
+  if (t.id === 'height-date') { S.drafts[t.id] = t.value; renderProgreso(); return; }
+  if (t.id === 'import-file') { importData(t); return; }
+  if ((t.dataset.slotName || t.dataset.slotTime || t.dataset.set) && S.tab === 'ajustes') renderAjustes();
+}
+function onSubmit(e) {
+  const f = e.target;
+  const kind = f && f.dataset ? f.dataset.form : null;
+  if (!kind) return;
+  e.preventDefault();
+  if (S.readonly) return;
+  if (extSubmit(kind)) return;
+  if (kind === 'weight' || kind === 'height') submitMeasure(kind, f);
+  else if (kind === 'comp') submitComp(f);
+  else if (kind === 'shop') submitShop(f);
+  else if (kind === 'lab') submitLab(f);
+  else if (kind === 'q') submitQ(f);
+}
+
+/* ---------- suscripciones ---------- */
+function onDays(list) {
+  const first = !S.daysLoaded;
+  let touchView = false, any = false;
+  for (const it of list) {
+    const path = 'days/' + it.id;
+    if (dirty.has(path)) continue;
+    const prev = S.days[it.id];
+    if (!prev || stable(prev) !== stable(it.data)) {
+      S.days[it.id] = clone(it.data);
+      any = true;
+      if (it.id === S.viewKey || it.id === addDays(S.viewKey, -1)) touchView = true;
+    }
+  }
+  S.daysCount = list.length;
+  S.oldestLoaded = list.length ? list.reduce((m, x) => (x.id < m ? x.id : m), list[0].id) : '0000-00-00';
+  S.daysLoaded = true;
+  if (S.tab === 'hoy' && (first || touchView)) renderHoy();
+  else if (S.tab === 'progreso' && (first || any)) renderProgreso();
+  else if (S.tab === 'habitos' && (first || any)) renderHabitos();
+}
+function colHandler(name, sortFn, render) {
+  return list => {
+    const prev = S[name];
+    const byId = new Map(prev.map(x => [x.id, x]));
+    const next = [];
+    for (const it of list) {
+      const path = name + '/' + it.id;
+      if (deleting.has(path)) continue;
+      if (dirty.has(path) && byId.has(it.id)) next.push(byId.get(it.id));
+      else next.push(Object.assign({ id: it.id }, clone(it.data)));
+    }
+    for (const x of prev) if (dirty.has(name + '/' + x.id) && !next.some(y => y.id === x.id)) next.push(x);
+    next.sort(sortFn);
+    const first = !S.loaded[name];
+    const changed = first || stable(next) !== stable(prev.slice().sort(sortFn));
+    S[name] = next;
+    S.loaded[name] = true;
+    if (changed) render();
+  };
+}
+function subscribeAll() {
+  store.watchDoc('config/settings', data => {
+    const first = !S.loaded.settings;
+    S.loaded.settings = true;
+    if (dirty.has('config/settings')) return;
+    const next = mergeSettings(data);
+    const ch = stable(next) !== stable(S.settings);
+    S.settings = next;
+    if (ch || (first && S.tab === 'ajustes')) renderActive();
+  });
+  store.watchDoc('config/meds', data => {
+    const first = !S.medsLoaded;
+    S.medsLoaded = true;
+    if (dirty.has('config/meds')) { if (first) renderActive(); return; }
+    const items = data && Array.isArray(data.items) ? clone(data.items) : [];
+    const ch = stable(items) !== stable(S.meds);
+    S.meds = items;
+    if (ch || first) renderActive();
+  });
+  store.watchDoc('config/shopping', data => {
+    const first = !S.loaded.shopping;
+    S.loaded.shopping = true;
+    if (dirty.has('config/shopping')) return;
+    const next = data && data.checked ? clone(data.checked) : {};
+    const nextC = data && Array.isArray(data.custom) ? clone(data.custom).filter(x => x && x.k && x.label) : [];
+    const ch = stable(next) !== stable(S.shopping) || stable(nextC) !== stable(S.shopCustom);
+    S.shopping = next;
+    S.shopCustom = nextC;
+    if ((ch || first) && S.tab === 'guia') renderGuia();
+  });
+  store.watchDoc('config/profile', data => {
+    const first = !S.loaded.profile;
+    S.loaded.profile = true;
+    if (dirty.has('config/profile')) return;
+    const next = {};
+    if (data && (data.sex === 'm' || data.sex === 'f')) next.sex = data.sex;
+    if (data && typeof data === 'object') Object.assign(next, cleanProfile(data));
+    if (data && /^\d{4}-\d{2}-\d{2}$/.test(String(data.birth || ''))) next.birth = data.birth;
+    const ch = stable(next) !== stable(S.profile);
+    S.profile = next;
+    if (!ch && !first) return;
+    if (S.tab === 'hoy') renderHoy(['act', 'meters', 'boost']);
+    else if (S.tab === 'ajustes') renderAjustes();
+    else if (S.tab === 'progreso') renderProgreso();
+    else if (S.tab === 'guia') renderGuia();
+  });
+  store.watchCol('days', onDays, ref => ref.orderBy('date', 'desc').limit(400));
+  store.watchCol('measures', colHandler('measures', byDate, () => { if (S.tab === 'progreso') renderProgreso(); else if (S.tab === 'hoy') renderHoy(['act', 'meters']); else if (S.tab === 'ajustes') renderAjustes(); }));
+  store.watchCol('labs', colHandler('labs', byDate, () => { if (S.tab === 'salud') renderSalud(); }));
+  store.watchCol('questions', colHandler('questions', byCreated, () => { if (S.tab === 'salud') renderSalud(); }));
+  const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es');
+  const onLib = () => { if (S.tab === 'ajustes') renderAjustes(); if (S.sheet && S.sheet.step === 'search') refreshRes(); };
+  store.watchCol('foods', colHandler('foods', byName, onLib));
+  store.watchCol('recipes', colHandler('recipes', byCreated, onLib));
+  store.watchDoc('config/guide', data => {
+    S.loaded.guide = true;
+    if (dirty.has('config/guide')) return;
+    S.guide = data && typeof data === 'object' ? data : null;
+    if (S.tab === 'guia') renderGuia();
+  });
+  store.watchDoc('config/habits', data => {
+    S.loaded.habits = true;
+    if (dirty.has('config/habits')) return;
+    S.habits = data && Array.isArray(data.items) ? data : null;
+    if (S.tab === 'hoy') renderHoy(['boost']);
+    else if (S.tab === 'ajustes') renderAjustes();
+    else if (S.tab === 'progreso') renderProgreso();
+    else if (S.tab === 'habitos') renderHabitos();
+  });
+  store.watchDoc('config/bosses', data => {
+    S.loaded.bosses = true;
+    if (dirty.has('config/bosses')) return;
+    S.bosses = data && Array.isArray(data.items) ? data : null;
+    if (S.tab === 'habitos') renderHabitos();
+    else if (S.tab === 'hoy') renderHoy(['game']);
+  });
+  store.watchDoc('config/social', data => {
+    S.loaded.reto = true;
+    if (dirty.has('config/social')) return;
+    S.reto = data && typeof data === 'object' ? data : null;
+    if (S.tab === 'hoy') renderHoy(['reto', 'game']);
+    else if (S.tab === 'progreso') renderProgreso();
+  });
+  store.watchDoc('config/aichat', data => {
+    S.loaded.aichat = true;
+    if (dirty.has('config/aichat')) return;
+    S.chat.items = data && Array.isArray(data.items) ? data.items.filter(x => x && (x.role === 'user' || x.role === 'assistant') && typeof x.text === 'string') : [];
+    if (S.tab === 'guia') renderChat();
+  });
+}
+
 /* ---------- cuenta: acceso, respaldo y cierre ---------- */
 let authMode = 'in';
 let authNote = '';
@@ -247,67 +437,4 @@ function computePlan(i) {
   if (preg) notes.push('En embarazo o lactancia las calorías cambian según el trimestre o la lactancia: esa cifra te la da tu médico. Ascend fija proteína (1,1 g por kilo), fibra, agua, sueño y pasos.');
   notes.push('Pésate cada 2 a 4 semanas; si el peso no se mueve como esperas, recalcula.');
   return r;
-}
-
-/* ---------- hoja: asistente guiado ---------- */
-function openPlan() {
-  if (S.readonly) return;
-  const p = prof(), tk = todayKey();
-  const w = latestOn('weight', tk), h = latestOn('height', tk);
-  openSheet({ kind: 'plan', step: 'form', err: '', res: null, in: {
-    sex: p.sex === 'm' || p.sex === 'f' ? p.sex : '', birth: p.birth || '',
-    height: h ? numText(h) : '', weight: w ? numText(w) : '',
-    goal: profileGoal(), pace: p.pace === 'moderado' ? 'moderado' : 'suave',
-    activity: ACTIVITY.some(a => a.k === p.activity) ? p.activity : '',
-    diet: Array.isArray(p.diet) ? p.diet.slice() : [], cond: Array.isArray(p.cond) ? p.cond.slice() : []
-  } });
-}
-const plTgl = (f, x, on, multi) => '<button type="button" class="tgl" id="pl-' + f + '-' + x.k + '" data-act="' + (multi ? 'pl-tog' : 'pl-set') + '" data-f="' + f + '" data-v="' + x.k + '" aria-pressed="' + !!on + '">' + esc(x.label) + (x.sub ? '<small>' + esc(x.sub) + '</small>' : '') + '</button>';
-function shPlanFormHTML(st) {
-  const i = st.in, tk = todayKey();
-  const pace = i.goal && i.goal !== 'mantener';
-  return sheetTop('Tu plan') +
-    '<p class="prose">Unas preguntas y Ascend calcula tus metas de calorías, nutrientes, agua, sueño y pasos. Puedes cambiarlas cuando quieras.</p>' +
-    '<form class="sh-form" data-form="sh-plan" novalidate>' +
-      '<p class="sh-sec">Sobre ti</p>' +
-      '<div class="field"><span class="lbl">Sexo</span><div class="toggles">' + [{ k: 'm', label: 'Hombre' }, { k: 'f', label: 'Mujer' }].map(x => plTgl('sex', x, i.sex === x.k)).join('') + '</div></div>' +
-      '<div class="field"><label class="lbl" for="pl-birth">Fecha de nacimiento</label><input type="date" id="pl-birth" data-pl="birth" min="1900-01-01" max="' + tk + '" value="' + esc(i.birth) + '"></div>' +
-      '<div class="grid2">' +
-        '<div class="field"><label class="lbl" for="pl-height">Estatura (cm)</label><input type="text" inputmode="decimal" id="pl-height" data-pl="height" autocomplete="off" value="' + esc(i.height) + '"></div>' +
-        '<div class="field"><label class="lbl" for="pl-weight">Peso (kg)</label><input type="text" inputmode="decimal" id="pl-weight" data-pl="weight" autocomplete="off" value="' + esc(i.weight) + '"></div>' +
-      '</div>' +
-      '<p class="sh-sec">Tu objetivo</p>' +
-      '<div class="toggles wide">' + GOALS.map(x => plTgl('goal', x, i.goal === x.k)).join('') + '</div>' +
-      (pace ? '<div class="field"><span class="lbl">Ritmo</span><div class="toggles">' + PACES.map(x => plTgl('pace', x, i.pace === x.k)).join('') + '</div></div>' : '') +
-      '<p class="sh-sec">Actividad</p>' +
-      '<div class="toggles wide">' + ACTIVITY.map(x => plTgl('activity', x, i.activity === x.k)).join('') + '</div>' +
-      '<p class="sh-sec">Alimentación (opcional)</p>' +
-      '<div class="toggles">' + DIETS.map(x => plTgl('diet', x, i.diet.indexOf(x.k) >= 0, true)).join('') + '</div>' +
-      '<p class="sh-sec">Salud (opcional)</p>' +
-      '<div class="toggles">' + CONDITIONS.map(x => plTgl('cond', x, i.cond.indexOf(x.k) >= 0, true)).join('') + '</div>' +
-      '<p class="hint">Marca una condición solo si la tienes diagnosticada: cambia qué metas pone Ascend y cuáles deja a tu médico. Todo queda solo en tu cuenta.</p>' +
-      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="pl-calc">Calcular mi plan</button>' +
-    '</form>';
-}
-function planRows(v, kinds) {
-  const KW = { meta: '', max: ' · máx.', min: ' · mín.' };
-  const rows = NUTRIENTS.map(n => [n.label + KW[kinds(n.k)], v[n.k] == null ? null : fmtNut(n.k, v[n.k]) + ' ' + n.unit]);
-  rows.push(['Agua', v.water == null ? null : fmtInt(v.water) + ' ml'], ['Sueño', fmtNum(v.sleep, 1) + ' h'], ['Pasos', fmtInt(v.steps)]);
-  return '<div class="prev-g">' + rows.map(x => '<span class="pv"><span>' + x[0] + '</span><b>' + (x[1] == null ? 'Tu médico' : x[1]) + '</b></span>').join('') + '</div>';
-}
-function shPlanResultHTML(st) {
-  const r = st.res, i = st.in;
-  const kinds = k => (k === 'p' ? ((i.cond || []).indexOf('renal') >= 0 ? 'max' : 'min') : k === 'kcal' ? (i.goal === 'bajar' && !r.teen ? 'max' : 'meta') : GOAL_KIND[k]);
-  return sheetTop('Tu plan', true) +
-    '<p class="plan-sub">' + esc(goalLabel(i.goal)) + ' · ' + r.age + ' años · ' + esc(numText(r1(parseNum(i.height)))) + ' cm · ' + esc(numText(r1(parseNum(i.weight)))) + ' kg</p>' +
-    (r.hideCal || r.hideKcal ? '' : '<div class="plan-top"><span class="big">' + fmtInt(r.kcal) + '</span><span class="unit">kcal al día</span></div>' +
-      '<p class="hint">Tu gasto estimado es de ' + fmtInt(r.maint) + ' kcal al día.</p>') +
-    '<div class="prev"><p class="sh-sec">Tus metas diarias</p>' + planRows({ ...r, water: r.water, sleep: r.sleep, steps: r.steps }, kinds) + '</div>' +
-    '<ul class="plan-notes">' + r.notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' +
-    '<form class="sh-form" data-form="sh-plansave" novalidate>' +
-      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="pl-save"' + (S.readonly ? ' disabled' : '') + '>Guardar mi plan</button>' +
-    '</form>' +
-    '<p class="hint">Son estimaciones con fórmulas de referencia (IOM para adolescentes, Mifflin-St Jeor para adultos, topes de la OMS). No reemplazan a tu médico ni a tu nutricionista.</p>';
 }

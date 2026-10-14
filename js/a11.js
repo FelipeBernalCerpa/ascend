@@ -9,6 +9,7 @@ function achievementsHTML() {
   if (a.habits) rows += card('✅', fmtInt(a.habits) + ' hábitos', 'completados en total');
   if (a.exDays) rows += card('🏋️', fmtInt(a.exDays), a.exDays === 1 ? 'sesión de ejercicio' : 'sesiones de ejercicio', '', true);
   if (a.logged) rows += card('📅', fmtInt(a.logged) + (a.logged === 1 ? ' día' : ' días'), 'registrando en Ascend');
+  if (typeof retoAchRows === 'function') rows += retoAchRows();
   if (!rows) return '<section class="card" id="card-ach"><div class="card-h"><h2>Lo que estás logrando</h2></div><p class="empty">Empieza a registrar y aquí verás tus rachas, totales y récords.</p></section>';
   return '<section class="card" id="card-ach"><div class="card-h"><h2>Lo que estás logrando</h2></div>' + rows + '<p class="hint">Comparado con tu propio récord. Cada número lo construiste tú.</p></section>';
 }
@@ -40,8 +41,147 @@ function v6Click(act, el, id) {
   return false;
 }
 
-const HOY_ORDER = ['game', 'daynav', 'meters', 'meds', 'water', 'food', 'act', 'boost', 'sleep', 'feel', 'notes'];
-const HOY = { game: gameCardHTML, daynav: daynavHTML, meters: metersHTML, meds: medsHTML, water: waterHTML, food: foodHTML, act: actHTML, boost: boostHTML, sleep: sleepHTML, feel: feelHTML, notes: notesHTML };
+/* ---------- v9: retos sociales (zona de confort) ----------
+   Un reto pequeño al día para ganar confianza social. Sano y respetuoso: confianza y conexión genuina,
+   nada de tácticas ni de ver a nadie como objetivo. Da XP, racha y trofeos (reusa el juego). */
+S.reto = null; S.loaded.reto = false;
+const RETO_LEVELS = [
+  { n: 1, name: 'Calentamiento', desc: 'Presencia: saludar, mirar, pedir algo.', items: [
+    { id: 'r101', t: 'Sonríe y saluda a alguien que no sueles saludar.' },
+    { id: 'r102', t: 'Sostén el contacto visual 3 segundos al hablar con alguien.' },
+    { id: 'r103', t: 'Dale los buenos días a alguien del colegio que casi no conoces.' },
+    { id: 'r104', t: 'Pídele la hora, un lápiz o una ayuda pequeña a alguien.' },
+    { id: 'r105', t: 'Agradece de verdad a alguien, mirándolo a los ojos.' },
+    { id: 'r106', t: 'Saluda tú primero, sin esperar a que lo hagan.' },
+    { id: 'r107', t: 'Preséntate con alguien nuevo: di tu nombre.' },
+    { id: 'r108', t: 'Haz una pregunta en clase o en un grupo.' }
+  ] },
+  { n: 2, name: 'Conversación', desc: 'Conectar: preguntar, escuchar, opinar.', items: [
+    { id: 'r201', t: 'Hazle una pregunta a un compañero sobre él y escucha de verdad.' },
+    { id: 'r202', t: 'Dale un cumplido genuino a alguien (algo que admires).' },
+    { id: 'r203', t: 'Opina en una conversación de grupo, aunque sea corto.' },
+    { id: 'r204', t: 'Cuenta una anécdota tuya en una charla.' },
+    { id: 'r205', t: 'Mantén una conversación de 2 minutos con alguien nuevo.' },
+    { id: 'r206', t: 'Haz reír a alguien con algo que digas.' },
+    { id: 'r207', t: 'Pregúntale a alguien cómo está y escucha la respuesta completa.' },
+    { id: 'r208', t: 'Únete a una conversación que ya estaba pasando.' }
+  ] },
+  { n: 3, name: 'Iniciativa', desc: 'Dar el paso: hablar en grupo, invitar.', items: [
+    { id: 'r301', t: 'Inicia una conversación con alguien que te intimida un poco.' },
+    { id: 'r302', t: 'Habla o participa frente a la clase o un grupo.' },
+    { id: 'r303', t: 'Invita a alguien a hacer un plan (estudiar, jugar, algo).' },
+    { id: 'r304', t: 'Comparte una opinión distinta a la del grupo, con respeto.' },
+    { id: 'r305', t: 'Empieza tú una actividad o un grupo.' },
+    { id: 'r306', t: 'Preséntate con alguien que te gustaría conocer.' },
+    { id: 'r307', t: 'Propón una idea en un grupo.' },
+    { id: 'r308', t: 'Pide un favor a alguien que no conoces mucho.' }
+  ] },
+  { n: 4, name: 'Ser real', desc: 'Honestidad: decir no, mostrarte.', items: [
+    { id: 'r401', t: 'Cuéntale algo honesto a un amigo, algo que te importa.' },
+    { id: 'r402', t: 'Di «no» a algo que no quieres hacer, sin dar mil excusas.' },
+    { id: 'r403', t: 'Admite frente a alguien que algo te cuesta o te da miedo.' },
+    { id: 'r404', t: 'Pide disculpas si sientes que debes.' },
+    { id: 'r405', t: 'Acepta un cumplido sin minimizarlo: solo «gracias».' },
+    { id: 'r406', t: 'Expresa cómo te sientes en vez de guardártelo.' },
+    { id: 'r407', t: 'Reconoce un error en voz alta.' },
+    { id: 'r408', t: 'Dale las gracias a alguien importante por algo real.' }
+  ] }
+];
+const RETO_MOOD = { hard: 'me costó', ok: 'normal', good: 'bien', easy: 'fácil' };
+
+function retoData() { return (S.reto && typeof S.reto === 'object') ? S.reto : {}; }
+function saveReto(d) { S.reto = d; saver.queue('config/social', clone(d), 200); }
+function retoLevel() { const l = retoData().level; return (l >= 1 && l <= 4) ? l : 1; }
+function retoItem(id) { for (const lv of RETO_LEVELS) for (const it of lv.items) if (it.id === id) return it; return null; }
+function retoOfDay() {
+  const k = todayKey(), d = retoData();
+  if (d.done && d.done[k]) { const it = retoItem(d.done[k].id) || { t: 'Reto completado', id: d.done[k].id }; return { item: it, done: true, mood: d.done[k].mood }; }
+  const pool = RETO_LEVELS[retoLevel() - 1].items;
+  const off = (d.roll && d.roll[k]) || 0;
+  const n = Math.floor(parseKey(k).getTime() / 86400000);
+  const idx = (((n + off) % pool.length) + pool.length) % pool.length;
+  return { item: pool[idx], done: false };
+}
+function retoStreak() {
+  const d = retoData(); if (!d.done) return 0;
+  const tk = todayKey(); let k = d.done[tk] ? tk : addDays(tk, -1), n = 0;
+  while (d.done[k]) { n++; k = addDays(k, -1); }
+  return n;
+}
+function retoCount() { const d = retoData(); return d.done ? Object.keys(d.done).length : 0; }
+function retoXP() { return retoCount() * 15; }
+
+function retoDone() {
+  if (S.readonly || !S.loaded.reto) return;
+  const k = todayKey(), r = retoOfDay();
+  if (r.done) return;
+  const d = clone(retoData()); d.done = d.done || {}; d.done[k] = { id: r.item.id };
+  saveReto(d); renderHoy(['reto', 'game']); toast('¡Reto hecho! +15 XP 💪');
+}
+function retoMood(m) {
+  const k = todayKey(), d = clone(retoData());
+  if (!d.done || !d.done[k]) return;
+  d.done[k].mood = m; saveReto(d); renderHoy(['reto']);
+}
+function retoReroll() {
+  if (S.readonly || !S.loaded.reto) return;
+  const k = todayKey(), d = clone(retoData());
+  d.roll = d.roll || {}; d.roll[k] = (d.roll[k] || 0) + 1;
+  saveReto(d); renderHoy(['reto']);
+}
+function retoSetLevel(l) {
+  if (S.readonly || !(l >= 1 && l <= 4)) return;
+  const d = clone(retoData()); d.level = l; saveReto(d);
+  if (S.sheet && S.sheet.kind === 'reto') renderSheet();
+  renderHoy(['reto']);
+}
+function retoCardHTML() {
+  if (!S.loaded.reto || !S.daysLoaded) return '<section class="card" id="card-reto"><div class="card-h"><h2>Reto de hoy</h2></div><p class="empty">Cargando…</p></section>';
+  const r = retoOfDay(), lvl = RETO_LEVELS[retoLevel() - 1];
+  const head = '<div class="card-h"><h2>Reto de hoy</h2><span class="meta">' + esc(lvl.name) + ' · <button type="button" class="link inline" data-act="reto-open">niveles</button></span></div>';
+  if (r.done) {
+    if (r.mood) return '<section class="card reto" id="card-reto">' + head + '<p class="reto-t isdone">✓ ' + esc(r.item.t) + '</p><p class="reto-note">¡Hecho! Lo marcaste como «' + esc(RETO_MOOD[r.mood] || '') + '».</p></section>';
+    const moods = [['hard', '😣'], ['ok', '😐'], ['good', '🙂'], ['easy', '😎']];
+    return '<section class="card reto" id="card-reto">' + head + '<p class="reto-t isdone">✓ ' + esc(r.item.t) + '</p>' +
+      '<p class="reto-ask">¿Cómo se sintió?</p><div class="reto-moods">' + moods.map(m => '<button type="button" class="reto-mood" data-act="reto-mood" data-m="' + m[0] + '" aria-label="' + esc(RETO_MOOD[m[0]]) + '">' + m[1] + '</button>').join('') + '</div></section>';
+  }
+  return '<section class="card reto" id="card-reto">' + head +
+    '<p class="reto-t">' + esc(r.item.t) + '</p>' +
+    '<div class="row reto-acts"><button type="button" class="btn" data-act="reto-done"' + (S.readonly ? ' disabled' : '') + '>Hecho</button>' +
+    '<button type="button" class="btn quiet sm" data-act="reto-reroll"' + (S.readonly ? ' disabled' : '') + '>Otro reto</button></div>' +
+    '<p class="hint">Un paso pequeño fuera de tu zona de confort. Tú pones el ritmo.</p></section>';
+}
+function shRetoHTML() {
+  const cur = retoLevel(), done = retoCount(), st = retoStreak();
+  const stat = (lbl, v) => '<div class="meter"><span class="m-lbl">' + lbl + '</span><span class="m-val">' + v + '</span></div>';
+  return sheetTop('Retos sociales') +
+    '<p class="plan-sub">Sal de tu zona de confort de a poco. Es confianza y conexión genuina, nada de tácticas ni de ver a nadie como objetivo. Tú eliges el nivel.</p>' +
+    '<div class="meters">' + stat('Retos hechos', fmtInt(done)) + (st ? stat('Racha', st + (st === 1 ? ' día' : ' días')) : '') + '</div>' +
+    '<p class="sh-sec">Tu nivel</p>' +
+    RETO_LEVELS.map(l => '<button type="button" class="reto-lv' + (l.n === cur ? ' on' : '') + '" data-act="reto-lv" data-v="' + l.n + '"><b>' + l.n + ' · ' + esc(l.name) + '</b><span>' + esc(l.desc) + '</span></button>').join('') +
+    '<p class="hint">Sube de nivel cuando te sientas listo. Puedes bajar cuando quieras.</p>';
+}
+function retoAchRows() {
+  const n = retoCount(); if (!n) return '';
+  const st = retoStreak();
+  const c = (ic, v, l) => '<div class="ach"><div class="ach-ic gold">' + ic + '</div><div class="ach-b"><div class="ach-v">' + esc(v) + '</div><div class="ach-l">' + esc(l) + '</div></div></div>';
+  let h = c('💪', fmtInt(n) + (n === 1 ? ' reto social' : ' retos sociales'), 'completados');
+  if (st > 1) h += c('🔥', st + ' días', 'de retos sociales seguidos');
+  return h;
+}
+function v9Click(act, el, id) {
+  switch (act) {
+    case 'reto-done': retoDone(); return true;
+    case 'reto-reroll': retoReroll(); return true;
+    case 'reto-mood': retoMood(el.dataset.m); return true;
+    case 'reto-open': openSheet({ kind: 'reto', step: 'view' }); return true;
+    case 'reto-lv': retoSetLevel(Number(el.dataset.v)); return true;
+  }
+  return false;
+}
+
+const HOY_ORDER = ['game', 'daynav', 'meters', 'meds', 'water', 'food', 'act', 'boost', 'reto', 'sleep', 'feel', 'notes'];
+const HOY = { game: gameCardHTML, daynav: daynavHTML, meters: metersHTML, meds: medsHTML, water: waterHTML, food: foodHTML, act: actHTML, boost: boostHTML, reto: retoCardHTML, sleep: sleepHTML, feel: feelHTML, notes: notesHTML };
 function renderHoy(parts) {
   const root = $('#view-hoy');
   if (!root) return;
@@ -152,141 +292,4 @@ function measureHTML(kind) {
       '<div class="field"><label class="lbl" for="' + vId + '">' + title + ' (' + unit + ')</label><input type="text" inputmode="decimal" id="' + vId + '" data-draft value="' + esc(draft(vId, '')) + '"></div>' +
     '</div>' + soon + '<p class="form-err">' + esc(S.formErr[kind] || '') + '</p>' +
     '<button type="submit" class="btn" id="' + kind + '-save"' + ro() + '>' + (isW ? 'Guardar peso' : 'Guardar estatura') + '</button></form>' + hist + '</section>';
-}
-function statsRange(n) {
-  const tk = todayKey();
-  const r = { days: 0, doses: 0, taken: 0, sN: 0, sSum: 0, wN: 0, wSum: 0, bSum: 0, bDue: 0, ex: 0, intense: 0, fN: 0, nut: sumN([]), stN: 0, stSum: 0 };
-  for (let i = 0; i < n; i++) {
-    const k = addDays(tk, -i), d = S.days[k];
-    if (!d) continue;
-    r.days++;
-    const ds = dosesFor(k);
-    r.doses += ds.length;
-    r.taken += ds.filter(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken').length;
-    const h = sleepHours(d.sleep);
-    if (h != null) { r.sN++; r.sSum += h; }
-    const w = sum(d.water);
-    if (w > 0) { r.wN++; r.wSum += w; }
-    { const hs = habDayStats(k); r.bSum += hs.done; r.bDue += hs.due; }
-    if (dayHasEx(d)) r.ex++;
-    if (dayIntense(d)) r.intense++;
-    const nu = dayNutri(d);
-    if (nu.count) { r.fN++; for (const k of NK) r.nut[k] += nu[k]; }
-    const stp = Number(d.steps) || 0;
-    if (stp > 0) { r.stN++; r.stSum += stp; }
-  }
-  return r;
-}
-function medStreak() {
-  const tk = todayKey();
-  let n = 0;
-  for (let i = 0; i < 400; i++) {
-    const k = addDays(tk, -i), ds = dosesFor(k);
-    if (!ds.length) continue;
-    const d = S.days[k];
-    const all = !!d && ds.every(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken');
-    if (all) n++;
-    else if (i === 0) continue;
-    else break;
-  }
-  return n;
-}
-function averagesHTML() {
-  const head = meta => '<div class="card-h"><h2>Tus promedios</h2>' + (meta ? '<span class="meta">' + meta + '</span>' : '') + '</div>';
-  if (!S.daysLoaded || !S.medsLoaded) return '<section class="card" id="card-avg">' + head('') + '<p class="empty">Cargando tus registros…</p></section>';
-  const a = statsRange(7), b = statsRange(30);
-  const pct = r => (r.doses ? Math.round(r.taken / r.doses * 100) + ' %<small>' + r.taken + '/' + r.doses + '</small>' : '—');
-  const sl = r => (r.sN ? fmtNum(r.sSum / r.sN, 1, 1) + ' h' : '—');
-  const wa = r => (r.wN ? fmtInt(r.wSum / r.wN) + ' ml' : '—');
-  const bo = r => (r.bDue ? Math.round(r.bSum / r.bDue * 100) + ' %<small>' + r.bSum + '/' + r.bDue + '</small>' : '—');
-  const dd = (v, r) => (r.days ? v + (v === 1 ? ' día' : ' días') : '—');
-  const nd = (n) => '<small>' + n + (n === 1 ? ' día' : ' días') + '</small>';
-  const kc = r => (r.fN ? fmtInt(r.nut.kcal / r.fN) + ' kcal' + nd(r.fN) : '—');
-  const gr = (r, k) => (r.fN ? fmtNut(k, r.nut[k] / r.fN) + ' g' : '—');
-  const mg = r => (r.fN ? fmtInt(r.nut.na / r.fN) + ' mg' : '—');
-  const stp = r => (r.stN ? fmtInt(r.stSum / r.stN) + nd(r.stN) : '—');
-  const rows = [
-    ['Medicamentos tomados', pct(a), pct(b)],
-    ['Calorías por día', kc(a), kc(b)],
-    ['Proteína por día', gr(a, 'p'), gr(b, 'p')],
-    ['Grasas por día', gr(a, 'f'), gr(b, 'f')],
-    ['Sodio por día', mg(a), mg(b)],
-    ['Pasos por día', stp(a), stp(b)],
-    ['Sueño promedio', sl(a), sl(b)],
-    ['Agua promedio', wa(a), wa(b)],
-    ['Hábitos cumplidos', bo(a), bo(b)],
-    ['Días con ejercicio', dd(a.ex, a), dd(b.ex, b)],
-    ['Días de cardio intenso', dd(a.intense, a), dd(b.intense, b)]
-  ];
-  const streak = medStreak();
-  return '<section class="card" id="card-avg">' + head(b.days + ' de 30 días con registro') +
-    '<div class="tbl-wrap"><table class="tbl stats"><thead><tr><th>Hábito</th><th>7 días</th><th>30 días</th></tr></thead><tbody>' +
-    rows.map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>').join('') + '</tbody></table></div>' +
-    '<p class="streak"><span class="big">' + streak + '</span><span class="unit">' + (streak === 1 ? 'día seguido' : 'días seguidos') + ' con todas las tomas</span></p>' +
-    '<p class="hint">Los promedios cuentan solo los días que registraste.</p></section>';
-}
-function bmiSeries() {
-  const hs = S.measures.filter(m => hasNum(m.height)).sort(byDate);
-  const out = [];
-  for (const w of S.measures.filter(m => hasNum(m.weight)).sort(byDate)) {
-    let h = null;
-    for (const x of hs) { if (x.date <= w.date) h = x; else break; }
-    if (!h || diffDays(h.date, w.date) > 120) continue;
-    const mt = Number(h.height) / 100;
-    out.push({ date: w.date, bmi: Math.round(Number(w.weight) / (mt * mt) * 10) / 10, weight: Number(w.weight), height: Number(h.height) });
-  }
-  return out;
-}
-function bmiHTML() {
-  let body;
-  const ser = bmiSeries();
-  if (!S.loaded.measures) body = '<p class="empty">Cargando…</p>';
-  else if (!ser.length) body = '<p class="empty">Registra tu peso y tu estatura para calcular el IMC.</p>';
-  else {
-    const last = ser[ser.length - 1], prev = ser[ser.length - 2];
-    const delta = prev ? Math.round((last.bmi - prev.bmi) * 10) / 10 : null;
-    body = '<div class="m-top"><div><span class="big">' + fmtNum(last.bmi, 1, 1) + '</span><span class="unit">kg/m²</span></div>' +
-      '<div class="m-meta"><span>' + fmtNum(last.weight, 1, 1) + ' kg · ' + fmtNum(last.height, 1, 1) + ' cm</span><span>' + fmtDate(last.date) + '</span>' +
-      (delta != null ? '<span class="delta">' + sign(delta) + fmtNum(Math.abs(delta), 1, 1) + ' desde el ' + fmtShort(prev.date) + '</span>' : '') + '</div></div>';
-    S.charts.bmi = { points: ser.map(p => ({ x: parseKey(p.date).getTime(), y: p.bmi })), unit: '', dec: 1, label: 'IMC en el tiempo' };
-    body += '<div class="chart" data-chart="bmi"></div>';
-  }
-  return '<section class="card" id="card-bmi"><div class="card-h"><h2>IMC</h2><span class="meta">Peso ÷ estatura²</span></div>' + body +
-    bmiNoteHTML(ser) + '</section>';
-}
-function compHTML() {
-  const list = S.measures.filter(m => hasNum(m.fat) || hasNum(m.muscle)).sort(byDate);
-  const tk = todayKey();
-  let top;
-  if (!S.loaded.measures) top = '<p class="empty">Cargando…</p>';
-  else if (!list.length) top = '<p class="empty">Aún no hay mediciones de composición corporal. Anota la próxima que te hagas.</p>';
-  else {
-    const fats = list.filter(m => hasNum(m.fat)), mus = list.filter(m => hasNum(m.muscle));
-    const lf = fats[fats.length - 1], pf = fats[fats.length - 2], lm = mus[mus.length - 1];
-    top = '<div class="comp-top">' +
-      (lf ? '<div class="comp-v"><span class="lbl">Grasa corporal</span><div><span class="big">' + fmtNum(lf.fat, 1, 1) + '</span><span class="unit">%</span></div><span class="delta">' +
-        (pf ? sign(lf.fat - pf.fat) + fmtNum(Math.abs(lf.fat - pf.fat), 1, 1) + ' desde el ' + fmtShort(pf.date) : fmtDate(lf.date)) + '</span></div>' : '') +
-      (lm ? '<div class="comp-v"><span class="lbl">Masa muscular</span><div><span class="big">' + fmtNum(lm.muscle, 1, 1) + '</span><span class="unit">kg</span></div><span class="delta">' + fmtDate(lm.date) + '</span></div>' : '') +
-    '</div>';
-    if (fats.length) {
-      S.charts.fat = { points: fats.map(m => ({ x: parseKey(m.date).getTime(), y: Number(m.fat) })), unit: '%', dec: 1, label: 'Grasa corporal en el tiempo' };
-      top += '<div class="chart" data-chart="fat"></div>';
-    }
-  }
-  const rows = list.slice().reverse().map(m => {
-    const tag = 'm:' + m.id + ':comp', armed = S.confirmDel === tag;
-    const txt = [hasNum(m.fat) ? fmtNum(m.fat, 1, 1) + ' % grasa' : '', hasNum(m.muscle) ? fmtNum(m.muscle, 1, 1) + ' kg músculo' : ''].filter(Boolean).join(' · ');
-    return '<div class="hrow"><span class="h-date">' + fmtShort(m.date) + '</span><span class="h-val">' + txt + '</span><span></span>' +
-      '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="del-comp-' + m.id + '" data-act="m-del" data-id="' + esc(m.id) + '" data-field="comp"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
-  }).join('');
-  const hist = list.length ? '<details class="hist" data-hist="comp"' + (S.openHist === 'comp' ? ' open' : '') + '><summary>Historial (' + list.length + ')</summary>' + rows + '</details>' : '';
-  return '<section class="card" id="card-comp"><div class="card-h"><h2>Composición corporal</h2><span class="meta">Grasa y músculo</span></div>' + top +
-    '<p class="hint">Anota lo que marque una báscula de composición corporal o lo que te mida tu nutricionista. Compara siempre con la misma báscula.</p>' +
-    '<form class="form" data-form="comp" novalidate>' +
-      '<div class="field"><label class="lbl" for="comp-date">Fecha</label><input type="date" id="comp-date" data-draft max="' + tk + '" value="' + esc(draft('comp-date', tk)) + '"></div>' +
-      '<div class="grid2">' +
-        '<div class="field"><label class="lbl" for="comp-fat">Grasa (%)</label><input type="text" inputmode="decimal" id="comp-fat" data-draft value="' + esc(draft('comp-fat', '')) + '"></div>' +
-        '<div class="field"><label class="lbl" for="comp-muscle">Masa muscular (kg)</label><input type="text" inputmode="decimal" id="comp-muscle" data-draft value="' + esc(draft('comp-muscle', '')) + '"></div>' +
-      '</div><p class="form-err">' + esc(S.formErr.comp || '') + '</p>' +
-      '<button type="submit" class="btn" id="comp-save"' + ro() + '>Guardar medición</button></form>' + hist + '</section>';
 }

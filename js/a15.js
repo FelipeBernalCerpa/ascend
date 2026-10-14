@@ -1,4 +1,66 @@
 'use strict';
+/* ---------- hoja: asistente guiado ---------- */
+function openPlan() {
+  if (S.readonly) return;
+  const p = prof(), tk = todayKey();
+  const w = latestOn('weight', tk), h = latestOn('height', tk);
+  openSheet({ kind: 'plan', step: 'form', err: '', res: null, in: {
+    sex: p.sex === 'm' || p.sex === 'f' ? p.sex : '', birth: p.birth || '',
+    height: h ? numText(h) : '', weight: w ? numText(w) : '',
+    goal: profileGoal(), pace: p.pace === 'moderado' ? 'moderado' : 'suave',
+    activity: ACTIVITY.some(a => a.k === p.activity) ? p.activity : '',
+    diet: Array.isArray(p.diet) ? p.diet.slice() : [], cond: Array.isArray(p.cond) ? p.cond.slice() : []
+  } });
+}
+const plTgl = (f, x, on, multi) => '<button type="button" class="tgl" id="pl-' + f + '-' + x.k + '" data-act="' + (multi ? 'pl-tog' : 'pl-set') + '" data-f="' + f + '" data-v="' + x.k + '" aria-pressed="' + !!on + '">' + esc(x.label) + (x.sub ? '<small>' + esc(x.sub) + '</small>' : '') + '</button>';
+function shPlanFormHTML(st) {
+  const i = st.in, tk = todayKey();
+  const pace = i.goal && i.goal !== 'mantener';
+  return sheetTop('Tu plan') +
+    '<p class="prose">Unas preguntas y Ascend calcula tus metas de calorías, nutrientes, agua, sueño y pasos. Puedes cambiarlas cuando quieras.</p>' +
+    '<form class="sh-form" data-form="sh-plan" novalidate>' +
+      '<p class="sh-sec">Sobre ti</p>' +
+      '<div class="field"><span class="lbl">Sexo</span><div class="toggles">' + [{ k: 'm', label: 'Hombre' }, { k: 'f', label: 'Mujer' }].map(x => plTgl('sex', x, i.sex === x.k)).join('') + '</div></div>' +
+      '<div class="field"><label class="lbl" for="pl-birth">Fecha de nacimiento</label><input type="date" id="pl-birth" data-pl="birth" min="1900-01-01" max="' + tk + '" value="' + esc(i.birth) + '"></div>' +
+      '<div class="grid2">' +
+        '<div class="field"><label class="lbl" for="pl-height">Estatura (cm)</label><input type="text" inputmode="decimal" id="pl-height" data-pl="height" autocomplete="off" value="' + esc(i.height) + '"></div>' +
+        '<div class="field"><label class="lbl" for="pl-weight">Peso (kg)</label><input type="text" inputmode="decimal" id="pl-weight" data-pl="weight" autocomplete="off" value="' + esc(i.weight) + '"></div>' +
+      '</div>' +
+      '<p class="sh-sec">Tu objetivo</p>' +
+      '<div class="toggles wide">' + GOALS.map(x => plTgl('goal', x, i.goal === x.k)).join('') + '</div>' +
+      (pace ? '<div class="field"><span class="lbl">Ritmo</span><div class="toggles">' + PACES.map(x => plTgl('pace', x, i.pace === x.k)).join('') + '</div></div>' : '') +
+      '<p class="sh-sec">Actividad</p>' +
+      '<div class="toggles wide">' + ACTIVITY.map(x => plTgl('activity', x, i.activity === x.k)).join('') + '</div>' +
+      '<p class="sh-sec">Alimentación (opcional)</p>' +
+      '<div class="toggles">' + DIETS.map(x => plTgl('diet', x, i.diet.indexOf(x.k) >= 0, true)).join('') + '</div>' +
+      '<p class="sh-sec">Salud (opcional)</p>' +
+      '<div class="toggles">' + CONDITIONS.map(x => plTgl('cond', x, i.cond.indexOf(x.k) >= 0, true)).join('') + '</div>' +
+      '<p class="hint">Marca una condición solo si la tienes diagnosticada: cambia qué metas pone Ascend y cuáles deja a tu médico. Todo queda solo en tu cuenta.</p>' +
+      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
+      '<button type="submit" class="btn" id="pl-calc">Calcular mi plan</button>' +
+    '</form>';
+}
+function planRows(v, kinds) {
+  const KW = { meta: '', max: ' · máx.', min: ' · mín.' };
+  const rows = NUTRIENTS.map(n => [n.label + KW[kinds(n.k)], v[n.k] == null ? null : fmtNut(n.k, v[n.k]) + ' ' + n.unit]);
+  rows.push(['Agua', v.water == null ? null : fmtInt(v.water) + ' ml'], ['Sueño', fmtNum(v.sleep, 1) + ' h'], ['Pasos', fmtInt(v.steps)]);
+  return '<div class="prev-g">' + rows.map(x => '<span class="pv"><span>' + x[0] + '</span><b>' + (x[1] == null ? 'Tu médico' : x[1]) + '</b></span>').join('') + '</div>';
+}
+function shPlanResultHTML(st) {
+  const r = st.res, i = st.in;
+  const kinds = k => (k === 'p' ? ((i.cond || []).indexOf('renal') >= 0 ? 'max' : 'min') : k === 'kcal' ? (i.goal === 'bajar' && !r.teen ? 'max' : 'meta') : GOAL_KIND[k]);
+  return sheetTop('Tu plan', true) +
+    '<p class="plan-sub">' + esc(goalLabel(i.goal)) + ' · ' + r.age + ' años · ' + esc(numText(r1(parseNum(i.height)))) + ' cm · ' + esc(numText(r1(parseNum(i.weight)))) + ' kg</p>' +
+    (r.hideCal || r.hideKcal ? '' : '<div class="plan-top"><span class="big">' + fmtInt(r.kcal) + '</span><span class="unit">kcal al día</span></div>' +
+      '<p class="hint">Tu gasto estimado es de ' + fmtInt(r.maint) + ' kcal al día.</p>') +
+    '<div class="prev"><p class="sh-sec">Tus metas diarias</p>' + planRows({ ...r, water: r.water, sleep: r.sleep, steps: r.steps }, kinds) + '</div>' +
+    '<ul class="plan-notes">' + r.notes.map(n => '<li>' + esc(n) + '</li>').join('') + '</ul>' +
+    '<form class="sh-form" data-form="sh-plansave" novalidate>' +
+      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
+      '<button type="submit" class="btn" id="pl-save"' + (S.readonly ? ' disabled' : '') + '>Guardar mi plan</button>' +
+    '</form>' +
+    '<p class="hint">Son estimaciones con fórmulas de referencia (IOM para adolescentes, Mifflin-St Jeor para adultos, topes de la OMS). No reemplazan a tu médico ni a tu nutricionista.</p>';
+}
 function shPlanHTML(st) { return st.step === 'result' && st.res ? shPlanResultHTML(st) : shPlanFormHTML(st); }
 function submitPlanForm() {
   const st = S.sheet;
@@ -196,79 +258,4 @@ function habitsCardHTML() {
     '<p class="form-err">' + esc(S.formErr.habit || '') + '</p></form>' +
     (own ? '<button type="button" class="link" id="hb-reset" data-act="hb-reset"' + dis + '>Volver a los de mi objetivo</button>' : '') +
     '<p class="hint">Aparecen en Hoy para marcarlos cada día. Lo que ya marcaste no cambia.</p></section>';
-}
-function submitHabit(form) {
-  if (S.readonly || !S.loaded.habits) return;
-  const label = ((($('#hb-new', form) || {}).value) || '').trim().slice(0, 60);
-  const list = habitsList();
-  S.formErr.habit = !label ? 'Escribe el hábito.' : list.length >= MAX_HABITS ? 'Puedes tener hasta ' + MAX_HABITS + ' hábitos.' : list.some(x => norm(x.label) === norm(label)) ? 'Ese hábito ya está.' : '';
-  if (S.formErr.habit) { renderAjustes(); return; }
-  saveHabits(list.concat({ k: 'c-' + uid(), label }));
-  delete S.drafts['hb-new'];
-  renderAjustes();
-  focusEl('hb-new');
-}
-function planProfileHTML() {
-  const p = prof(), dis = S.readonly || !S.loaded.profile ? ' disabled' : '';
-  const bits = [goalLabel(p.goal), labelsOf(CONDITIONS, p.cond).join(', ')].filter(Boolean);
-  return '<div class="row plan-actions">' + (bits.length ? '<span class="plan-sub">' + esc(bits.join(' · ')) + '</span>' : '') +
-    '<button type="button" class="btn sm ghost" id="prof-plan" data-act="plan-open"' + dis + '>' + (profileGoal() ? 'Recalcular mi plan' : 'Armar mi plan') + '</button></div>';
-}
-function privacyInner() {
-  return '<p>Tus registros (comida, medicamentos, medidas, exámenes y notas) se guardan en tu cuenta, en servidores de Supabase. Las reglas de la base de datos hacen que solo tu cuenta pueda leerlos o cambiarlos.</p>' +
-    '<p>Puedes descargar todos tus datos o borrarlos en Ajustes cuando quieras.</p>' +
-    '<p>Si usas el asistente con IA, tu mensaje y un resumen de tu plan y tus registros se envían a Anthropic (Claude) solo para responderte.</p>' +
-    '<p>Ascend es una herramienta de registro y educación: no reemplaza a tu médico, a tu nutricionista ni ningún tratamiento.</p>' +
-    '<p>Si tienes menos de 18 años, úsala con permiso de tu mamá, papá o acudiente.</p>';
-}
-function bmiNoteHTML(ser) {
-  const age = userAge(), last = ser && ser.length ? ser[ser.length - 1] : null;
-  let cat = '';
-  if (last && age != null && age >= 18) {
-    const b = last.bmi, c = b < 18.5 ? ['warn', 'Bajo peso'] : b < 25 ? ['ok', 'Peso saludable'] : b < 30 ? ['warn', 'Sobrepeso'] : ['crit', 'Obesidad'];
-    cat = '<p class="pill ' + c[0] + ' next">' + c[1] + '</p>';
-  }
-  return cat + '<p class="hint">Se calcula con cada peso y la estatura más reciente. ' + (age != null && age < 18
-    ? 'Antes de los 18 años el IMC se lee con las tablas de la OMS por edad y sexo; la interpretación la hace tu médico o nutricionista.'
-    : 'En adultos: menos de 18,5 es bajo peso, de 18,5 a 24,9 saludable, de 25 a 29,9 sobrepeso y 30 o más obesidad. No distingue músculo de grasa.') + '</p>';
-}
-
-/* ---------- asistente con IA ---------- */
-const PROP_LABELS = { kcal: ['Calorías', 'kcal'], p: ['Proteína', 'g'], c: ['Carbohidratos', 'g'], s: ['Azúcar máx.', 'g'], fi: ['Fibra mín.', 'g'], f: ['Grasas', 'g'], sf: ['Saturadas máx.', 'g'], na: ['Sodio máx.', 'mg'], waterGoal: ['Agua', 'ml'], sleepGoal: ['Sueño', 'h'], stepGoal: ['Pasos', ''] };
-function fmtAiText(t) {
-  return esc(String(t || '')).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/^[-*•] /gm, '• ').replace(/\n/g, '<br>');
-}
-/* mínimo de calorías que Ascend acepta de una propuesta: menores de 18, nunca por debajo de su gasto; adultos, nunca por debajo de 1.200 (mujeres) o 1.500 (hombres) ni más de 500 bajo su gasto */
-function kcalFloor() {
-  const p = prof(), age = userAge(), tk = todayKey();
-  let maint = p.plan && Number(p.plan.maint) > 0 ? Number(p.plan.maint) : null;
-  if (!maint) {
-    const w = latestOn('weight', tk), h = latestOn('height', tk);
-    if (w && h && p.birth && (p.sex === 'm' || p.sex === 'f')) {
-      const r = computePlan({ sex: p.sex, birth: p.birth, weight: String(w), height: String(h), goal: 'mantener', activity: ACTIVITY.some(a => a.k === p.activity) ? p.activity : 'poca', cond: [], diet: [] });
-      if (!r.err) maint = r.maint;
-    }
-  }
-  if (age == null || age < 18) return maint ? Math.round(maint * 0.95) : Infinity;
-  return Math.max(p.sex === 'f' ? 1200 : 1500, maint ? maint - 500 : 0);
-}
-function proposalCheck(pr) {
-  const out = {}, skipped = [];
-  const LAB = { kcal: 'las calorías', p: 'la proteína', c: 'los carbohidratos', s: 'el azúcar', fi: 'la fibra', f: 'las grasas', sf: 'las saturadas', na: 'el sodio', waterGoal: 'el agua' };
-  const block = new Set();
-  if (hasCond('tca')) NK.filter(k => k !== 'na').concat(['waterGoal', 'stepGoal']).forEach(k => block.add(k));
-  if (hasCond('renal')) ['p', 'na', 'waterGoal'].forEach(k => block.add(k));
-  if (hasCond('diabetes')) block.add('c');
-  if (hasCond('embarazo')) ['kcal', 'c', 'f', 'sf', 's'].forEach(k => block.add(k));
-  const range = { waterGoal: [500, 6000], sleepGoal: [5, 12], stepGoal: [1000, 30000] };
-  for (const k of Object.keys(PROP_LABELS)) {
-    let v = Number(pr && pr[k]);
-    if (!pr || pr[k] == null || !isFinite(v) || v <= 0) continue;
-    if (range[k] && !(v >= range[k][0] && v <= range[k][1])) continue;
-    if (block.has(k)) { skipped.push(LAB[k]); continue; }
-    if (k === 'kcal' && v < kcalFloor()) { skipped.push('las calorías (quedaban por debajo de lo seguro para ti)'); continue; }
-    if (k === 'na' && hasCond('hta')) v = Math.min(v, 1500);
-    out[k] = k === 'kcal' || k === 'na' || k === 'waterGoal' || k === 'stepGoal' ? Math.round(v) : r1(v);
-  }
-  return { out, skipped: hasCond('tca') ? [] : skipped };
 }

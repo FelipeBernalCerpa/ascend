@@ -1,4 +1,141 @@
 'use strict';
+function statsRange(n) {
+  const tk = todayKey();
+  const r = { days: 0, doses: 0, taken: 0, sN: 0, sSum: 0, wN: 0, wSum: 0, bSum: 0, bDue: 0, ex: 0, intense: 0, fN: 0, nut: sumN([]), stN: 0, stSum: 0 };
+  for (let i = 0; i < n; i++) {
+    const k = addDays(tk, -i), d = S.days[k];
+    if (!d) continue;
+    r.days++;
+    const ds = dosesFor(k);
+    r.doses += ds.length;
+    r.taken += ds.filter(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken').length;
+    const h = sleepHours(d.sleep);
+    if (h != null) { r.sN++; r.sSum += h; }
+    const w = sum(d.water);
+    if (w > 0) { r.wN++; r.wSum += w; }
+    { const hs = habDayStats(k); r.bSum += hs.done; r.bDue += hs.due; }
+    if (dayHasEx(d)) r.ex++;
+    if (dayIntense(d)) r.intense++;
+    const nu = dayNutri(d);
+    if (nu.count) { r.fN++; for (const k of NK) r.nut[k] += nu[k]; }
+    const stp = Number(d.steps) || 0;
+    if (stp > 0) { r.stN++; r.stSum += stp; }
+  }
+  return r;
+}
+function medStreak() {
+  const tk = todayKey();
+  let n = 0;
+  for (let i = 0; i < 400; i++) {
+    const k = addDays(tk, -i), ds = dosesFor(k);
+    if (!ds.length) continue;
+    const d = S.days[k];
+    const all = !!d && ds.every(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken');
+    if (all) n++;
+    else if (i === 0) continue;
+    else break;
+  }
+  return n;
+}
+function averagesHTML() {
+  const head = meta => '<div class="card-h"><h2>Tus promedios</h2>' + (meta ? '<span class="meta">' + meta + '</span>' : '') + '</div>';
+  if (!S.daysLoaded || !S.medsLoaded) return '<section class="card" id="card-avg">' + head('') + '<p class="empty">Cargando tus registros…</p></section>';
+  const a = statsRange(7), b = statsRange(30);
+  const pct = r => (r.doses ? Math.round(r.taken / r.doses * 100) + ' %<small>' + r.taken + '/' + r.doses + '</small>' : '—');
+  const sl = r => (r.sN ? fmtNum(r.sSum / r.sN, 1, 1) + ' h' : '—');
+  const wa = r => (r.wN ? fmtInt(r.wSum / r.wN) + ' ml' : '—');
+  const bo = r => (r.bDue ? Math.round(r.bSum / r.bDue * 100) + ' %<small>' + r.bSum + '/' + r.bDue + '</small>' : '—');
+  const dd = (v, r) => (r.days ? v + (v === 1 ? ' día' : ' días') : '—');
+  const nd = (n) => '<small>' + n + (n === 1 ? ' día' : ' días') + '</small>';
+  const kc = r => (r.fN ? fmtInt(r.nut.kcal / r.fN) + ' kcal' + nd(r.fN) : '—');
+  const gr = (r, k) => (r.fN ? fmtNut(k, r.nut[k] / r.fN) + ' g' : '—');
+  const mg = r => (r.fN ? fmtInt(r.nut.na / r.fN) + ' mg' : '—');
+  const stp = r => (r.stN ? fmtInt(r.stSum / r.stN) + nd(r.stN) : '—');
+  const rows = [
+    ['Medicamentos tomados', pct(a), pct(b)],
+    ['Calorías por día', kc(a), kc(b)],
+    ['Proteína por día', gr(a, 'p'), gr(b, 'p')],
+    ['Grasas por día', gr(a, 'f'), gr(b, 'f')],
+    ['Sodio por día', mg(a), mg(b)],
+    ['Pasos por día', stp(a), stp(b)],
+    ['Sueño promedio', sl(a), sl(b)],
+    ['Agua promedio', wa(a), wa(b)],
+    ['Hábitos cumplidos', bo(a), bo(b)],
+    ['Días con ejercicio', dd(a.ex, a), dd(b.ex, b)],
+    ['Días de cardio intenso', dd(a.intense, a), dd(b.intense, b)]
+  ];
+  const streak = medStreak();
+  return '<section class="card" id="card-avg">' + head(b.days + ' de 30 días con registro') +
+    '<div class="tbl-wrap"><table class="tbl stats"><thead><tr><th>Hábito</th><th>7 días</th><th>30 días</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td></tr>').join('') + '</tbody></table></div>' +
+    '<p class="streak"><span class="big">' + streak + '</span><span class="unit">' + (streak === 1 ? 'día seguido' : 'días seguidos') + ' con todas las tomas</span></p>' +
+    '<p class="hint">Los promedios cuentan solo los días que registraste.</p></section>';
+}
+function bmiSeries() {
+  const hs = S.measures.filter(m => hasNum(m.height)).sort(byDate);
+  const out = [];
+  for (const w of S.measures.filter(m => hasNum(m.weight)).sort(byDate)) {
+    let h = null;
+    for (const x of hs) { if (x.date <= w.date) h = x; else break; }
+    if (!h || diffDays(h.date, w.date) > 120) continue;
+    const mt = Number(h.height) / 100;
+    out.push({ date: w.date, bmi: Math.round(Number(w.weight) / (mt * mt) * 10) / 10, weight: Number(w.weight), height: Number(h.height) });
+  }
+  return out;
+}
+function bmiHTML() {
+  let body;
+  const ser = bmiSeries();
+  if (!S.loaded.measures) body = '<p class="empty">Cargando…</p>';
+  else if (!ser.length) body = '<p class="empty">Registra tu peso y tu estatura para calcular el IMC.</p>';
+  else {
+    const last = ser[ser.length - 1], prev = ser[ser.length - 2];
+    const delta = prev ? Math.round((last.bmi - prev.bmi) * 10) / 10 : null;
+    body = '<div class="m-top"><div><span class="big">' + fmtNum(last.bmi, 1, 1) + '</span><span class="unit">kg/m²</span></div>' +
+      '<div class="m-meta"><span>' + fmtNum(last.weight, 1, 1) + ' kg · ' + fmtNum(last.height, 1, 1) + ' cm</span><span>' + fmtDate(last.date) + '</span>' +
+      (delta != null ? '<span class="delta">' + sign(delta) + fmtNum(Math.abs(delta), 1, 1) + ' desde el ' + fmtShort(prev.date) + '</span>' : '') + '</div></div>';
+    S.charts.bmi = { points: ser.map(p => ({ x: parseKey(p.date).getTime(), y: p.bmi })), unit: '', dec: 1, label: 'IMC en el tiempo' };
+    body += '<div class="chart" data-chart="bmi"></div>';
+  }
+  return '<section class="card" id="card-bmi"><div class="card-h"><h2>IMC</h2><span class="meta">Peso ÷ estatura²</span></div>' + body +
+    bmiNoteHTML(ser) + '</section>';
+}
+function compHTML() {
+  const list = S.measures.filter(m => hasNum(m.fat) || hasNum(m.muscle)).sort(byDate);
+  const tk = todayKey();
+  let top;
+  if (!S.loaded.measures) top = '<p class="empty">Cargando…</p>';
+  else if (!list.length) top = '<p class="empty">Aún no hay mediciones de composición corporal. Anota la próxima que te hagas.</p>';
+  else {
+    const fats = list.filter(m => hasNum(m.fat)), mus = list.filter(m => hasNum(m.muscle));
+    const lf = fats[fats.length - 1], pf = fats[fats.length - 2], lm = mus[mus.length - 1];
+    top = '<div class="comp-top">' +
+      (lf ? '<div class="comp-v"><span class="lbl">Grasa corporal</span><div><span class="big">' + fmtNum(lf.fat, 1, 1) + '</span><span class="unit">%</span></div><span class="delta">' +
+        (pf ? sign(lf.fat - pf.fat) + fmtNum(Math.abs(lf.fat - pf.fat), 1, 1) + ' desde el ' + fmtShort(pf.date) : fmtDate(lf.date)) + '</span></div>' : '') +
+      (lm ? '<div class="comp-v"><span class="lbl">Masa muscular</span><div><span class="big">' + fmtNum(lm.muscle, 1, 1) + '</span><span class="unit">kg</span></div><span class="delta">' + fmtDate(lm.date) + '</span></div>' : '') +
+    '</div>';
+    if (fats.length) {
+      S.charts.fat = { points: fats.map(m => ({ x: parseKey(m.date).getTime(), y: Number(m.fat) })), unit: '%', dec: 1, label: 'Grasa corporal en el tiempo' };
+      top += '<div class="chart" data-chart="fat"></div>';
+    }
+  }
+  const rows = list.slice().reverse().map(m => {
+    const tag = 'm:' + m.id + ':comp', armed = S.confirmDel === tag;
+    const txt = [hasNum(m.fat) ? fmtNum(m.fat, 1, 1) + ' % grasa' : '', hasNum(m.muscle) ? fmtNum(m.muscle, 1, 1) + ' kg músculo' : ''].filter(Boolean).join(' · ');
+    return '<div class="hrow"><span class="h-date">' + fmtShort(m.date) + '</span><span class="h-val">' + txt + '</span><span></span>' +
+      '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="del-comp-' + m.id + '" data-act="m-del" data-id="' + esc(m.id) + '" data-field="comp"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
+  }).join('');
+  const hist = list.length ? '<details class="hist" data-hist="comp"' + (S.openHist === 'comp' ? ' open' : '') + '><summary>Historial (' + list.length + ')</summary>' + rows + '</details>' : '';
+  return '<section class="card" id="card-comp"><div class="card-h"><h2>Composición corporal</h2><span class="meta">Grasa y músculo</span></div>' + top +
+    '<p class="hint">Anota lo que marque una báscula de composición corporal o lo que te mida tu nutricionista. Compara siempre con la misma báscula.</p>' +
+    '<form class="form" data-form="comp" novalidate>' +
+      '<div class="field"><label class="lbl" for="comp-date">Fecha</label><input type="date" id="comp-date" data-draft max="' + tk + '" value="' + esc(draft('comp-date', tk)) + '"></div>' +
+      '<div class="grid2">' +
+        '<div class="field"><label class="lbl" for="comp-fat">Grasa (%)</label><input type="text" inputmode="decimal" id="comp-fat" data-draft value="' + esc(draft('comp-fat', '')) + '"></div>' +
+        '<div class="field"><label class="lbl" for="comp-muscle">Masa muscular (kg)</label><input type="text" inputmode="decimal" id="comp-muscle" data-draft value="' + esc(draft('comp-muscle', '')) + '"></div>' +
+      '</div><p class="form-err">' + esc(S.formErr.comp || '') + '</p>' +
+      '<button type="submit" class="btn" id="comp-save"' + ro() + '>Guardar medición</button></form>' + hist + '</section>';
+}
 function renderProgreso() {
   const root = $('#view-progreso');
   if (!root) return;
@@ -163,93 +300,4 @@ function buildSummary() {
     }
   }
   return L.join('\n');
-}
-function renderSalud() {
-  const root = $('#view-salud');
-  if (!root) return;
-  S.charts = {};
-  swap(root, labsHTML() + questionsHTML() + summaryHTML());
-  drawCharts(root);
-}
-async function copySummary() {
-  const ta = $('#sum-out');
-  if (!ta) return;
-  let ok = false;
-  try { await navigator.clipboard.writeText(S.summary); ok = true; } catch (e) { ok = false; }
-  if (!ok) { ta.focus(); ta.select(); return; }
-  S.copied = true;
-  renderSalud();
-  setTimeout(() => { S.copied = false; if (S.tab === 'salud') renderSalud(); }, 2500);
-}
-
-/* ---------- GUÍA ---------- */
-
-/* ---------- AJUSTES ---------- */
-function medEditorHTML() {
-  const d = S.medDraft;
-  if (!d) return '';
-  const isNew = !d.id;
-  const days = Array.isArray(d.days) ? d.days : ALL_DAYS;
-  return '<div class="med-ed" id="med-editor"><h3 class="form-t">' + (isNew ? 'Nuevo medicamento' : 'Editar medicamento') + '</h3>' +
-    '<div class="field"><label class="lbl" for="md-name">Nombre</label><input type="text" id="md-name" data-md-field="name" value="' + esc(d.name || '') + '" autocomplete="off"></div>' +
-    '<div class="grid2">' +
-      '<div class="field"><label class="lbl" for="md-dose">Dosis</label><input type="text" id="md-dose" data-md-field="dose" value="' + esc(d.dose || '') + '" placeholder="La de tu fórmula"></div>' +
-      '<div class="field"><label class="lbl" for="md-note">Nota</label><input type="text" id="md-note" data-md-field="note" value="' + esc(d.note || '') + '"></div>' +
-    '</div>' +
-    '<div class="field"><span class="lbl">Horarios</span><div class="toggles">' + SLOT_KEYS.map(k => '<button type="button" class="tgl" id="mds-' + k + '" data-act="md-slot" data-s="' + k + '" aria-pressed="' + ((d.slots || []).indexOf(k) >= 0) + '">' + esc(S.settings.slots[k].name) + '<small>' + fmtHM(S.settings.slots[k].time) + '</small></button>').join('') + '</div></div>' +
-    '<div class="field"><span class="lbl">Días</span><div class="toggles days">' + WD_ORDER.map(n => '<button type="button" class="tgl" id="mdw-' + n + '" data-act="md-day" data-n="' + n + '" aria-pressed="' + (days.indexOf(n) >= 0) + '" aria-label="' + WD[n] + '">' + WD1[n] + '</button>').join('') + '</div></div>' +
-    '<button type="button" class="switch" id="md-active" data-act="md-active" aria-pressed="' + !!d.active + '"><span class="sw"></span>' + (d.active ? 'Activo' : 'En pausa') + '</button>' +
-    '<p class="form-err">' + esc(S.formErr.med || '') + '</p>' +
-    '<div class="row"><button type="button" class="btn" id="md-save" data-act="md-save">' + (isNew ? 'Agregar' : 'Guardar cambios') + '</button><button type="button" class="btn quiet" id="md-cancel" data-act="md-cancel">Cancelar</button></div>' +
-  '</div>';
-}
-function medRowHTML(m) {
-  if (S.medDraft && S.medDraft.id === m.id) return '<div class="med editing">' + medEditorHTML() + '</div>';
-  const tag = 'med:' + m.id, armed = S.confirmDel === tag;
-  return '<div class="med' + (m.active ? '' : ' off') + '"><div class="med-info"><span class="med-n">' + esc(m.name || 'Sin nombre') + (m.dose ? ' <small>' + esc(m.dose) + '</small>' : '') + '</span>' +
-    '<span class="med-s">' + (m.active ? esc(medSchedText(m)) : 'En pausa') + '</span></div>' +
-    '<div class="med-btns"><button type="button" class="xbtn" id="me-' + m.id + '" data-act="med-edit" data-id="' + esc(m.id) + '"' + ro() + '>Editar</button>' +
-    '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="mx-' + m.id + '" data-act="med-del" data-id="' + esc(m.id) + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div></div>';
-}
-function renderAjustes() {
-  const root = $('#view-ajustes');
-  if (!root) return;
-  const s = S.settings;
-  const setDis = S.readonly || !S.loaded.settings ? ' disabled' : '';
-  const newDraft = !!(S.medDraft && !S.medDraft.id);
-  let medsList;
-  if (!S.medsLoaded) medsList = '<p class="empty">Cargando…</p>';
-  else if (!S.meds.length) medsList = newDraft ? '' : '<p class="empty">Aún no hay medicamentos. Agrega el primero con su nombre, dosis y horario.</p>';
-  else medsList = S.meds.map(medRowHTML).join('');
-  const slotsHTML = SLOT_KEYS.map(k =>
-    '<div class="slot-edit"><div class="field"><label class="lbl" for="sn-' + k + '">Nombre</label><input type="text" id="sn-' + k + '" data-slot-name="' + k + '" value="' + esc(s.slots[k].name) + '"' + setDis + '></div>' +
-    '<div class="field"><label class="lbl" for="st-' + k + '">Hora</label><input type="time" id="st-' + k + '" data-slot-time="' + k + '" value="' + esc(s.slots[k].time) + '"' + setDis + '></div></div>'
-  ).join('');
-  const wipeArmed = S.confirmDel === 'wipe';
-  swap(root,
-    appSettingsCardHTML() +
-    (medsOn() ?
-    '<section class="card" id="card-medsed"><div class="card-h"><h2>Medicamentos</h2><span class="meta">' + S.meds.filter(m => m.active).length + ' activos</span></div>' +
-      (newDraft ? '<div class="med editing new">' + medEditorHTML() + '</div>'
-        : '<button type="button" class="btn add-top" id="med-new" data-act="med-new"' + (S.readonly || !S.medsLoaded ? ' disabled' : '') + '>Agregar medicamento</button>') +
-      '<div class="meds">' + medsList + '</div>' +
-      '<p class="hint">Copia nombre, dosis y horario tal como vienen en tu fórmula. Si un médico cambia algo, actualízalo aquí el mismo día.</p></section>' +
-    '<section class="card"><div class="card-h"><h2>Horarios de tomas</h2></div><div class="slots-ed">' + slotsHTML + '</div></section>' : '') +
-    '<section class="card"><div class="card-h"><h2>Metas</h2></div><div class="grid2">' +
-      '<div class="field"><label class="lbl" for="set-water">Agua al día (ml)</label><input type="text" inputmode="numeric" id="set-water" data-set="waterGoal" value="' + esc(s.waterGoal) + '"' + setDis + '></div>' +
-      '<div class="field"><label class="lbl" for="set-sleep">Sueño (horas)</label><input type="text" inputmode="decimal" id="set-sleep" data-set="sleepGoal" value="' + esc(fmtNum(s.sleepGoal, 1)) + '"' + setDis + '></div>' +
-      '<div class="field"><label class="lbl" for="set-bed">Dormido a las</label><input type="time" id="set-bed" data-set="bedTarget" value="' + esc(s.bedTarget) + '"' + setDis + '></div>' +
-      '<div class="field"><label class="lbl" for="set-wake">Me levanto a las</label><input type="time" id="set-wake" data-set="wakeTarget" value="' + esc(s.wakeTarget) + '"' + setDis + '></div>' +
-    '</div><p class="hint">Si tu médico te indica otra meta de agua o de sueño, cámbiala aquí.</p></section>' +
-    profileCardHTML() + goalsCardHTML() + myFoodsCardHTML() + socialCardHTML() +
-    '<section class="card" id="card-account"><div class="card-h"><h2>Tu cuenta</h2></div>' +
-      '<p class="acct">' + esc(S.userEmail || '') + '</p>' +
-      '<div class="row"><button type="button" class="btn quiet" id="acct-export" data-act="export">Descargar mis datos</button>' +
-      '<label class="btn quiet" for="import-file" id="acct-import">Importar datos</label><input type="file" id="import-file" accept="application/json,.json" hidden></div>' +
-      (S.dataMsg ? '<p class="hint">' + esc(S.dataMsg) + '</p>' : '') +
-      '<div class="row acct-end"><button type="button" class="btn quiet" id="acct-logout" data-act="logout">Cerrar sesión</button>' +
-      '<button type="button" class="btn sm ' + (wipeArmed ? 'danger' : 'quiet') + '" id="acct-wipe" data-act="wipe">' + (wipeArmed ? 'Toca otra vez para borrar todo' : 'Borrar todos mis datos') + '</button></div>' +
-      '<p class="hint">Tus registros se guardan en tu cuenta de Ascend y solo tú los ves. Borrar tus datos no se puede deshacer.</p></section>' +
-    '<section class="card" id="card-about"><div class="card-h"><h2>Sobre Ascend</h2></div><p class="prose">Ascend te ayuda a llevar medicamentos, comida, actividad, sueño y salud en un solo lugar. Los horarios y las dosis los define tu equipo médico.</p><details class="privacy"><summary>Privacidad y uso de tus datos</summary>' + privacyInner() + '</details></section>'
-  );
 }

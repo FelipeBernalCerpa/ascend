@@ -1,4 +1,109 @@
 'use strict';
+async function authToken() {
+  try { const s = await sb.auth.getSession(); return s && s.data && s.data.session ? s.data.session.access_token || '' : ''; } catch (e) { return ''; }
+}
+
+/* ---------- hábitos: modelo ---------- */
+const HFREQ = [
+  { k: 'daily', label: 'Todos los días' },
+  { k: 'days', label: 'Algunos días' },
+  { k: 'weekly', label: 'Veces por semana' },
+  { k: 'monthly', label: 'Veces al mes' }
+];
+function habNorm(h) {
+  const freq = HFREQ.some(f => f.k === h.freq) ? h.freq : 'daily';
+  let days = Array.isArray(h.days) ? h.days.filter(n => Number.isInteger(n) && n >= 0 && n <= 6) : [];
+  if (freq === 'days' && !days.length) days = [1, 2, 3, 4, 5];
+  const times = clampInt(h.times, 1, freq === 'monthly' ? 31 : 7, freq === 'monthly' ? 4 : 3);
+  return { k: String(h.k), label: String(h.label || ''), freq, days: freq === 'days' ? days : [], times, start: isKey(h.start) ? h.start : '', end: isKey(h.end) ? h.end : '', remind: isHM(h.remind) ? h.remind : '', note: String(h.note || '').slice(0, 200), createdAt: h.createdAt || 0 };
+}
+function habs() { return habitsList().map(habNorm); }
+const habFlex = h => h.freq === 'weekly' || h.freq === 'monthly';
+function habActive(h, k) { return (!h.start || k >= h.start) && (!h.end || k <= h.end); }
+function habDone(h, k) { const d = S.days[k]; return !!(d && d.boost && d.boost[h.k]); }
+function habPeriod(h, k) { return h.freq === 'weekly' ? [weekStart(k), addDays(weekStart(k), 6)] : h.freq === 'monthly' ? [monthStart(k), monthEnd(k)] : [k, k]; }
+function habCount(h, a, b) { let n = 0; for (let k = a; k <= b; k = addDays(k, 1)) if (habDone(h, k)) n++; return n; }
+/* el día está en el plan del hábito (los de veces por semana o mes sirven cualquier día) */
+function habScheduled(h, k) {
+  if (!habActive(h, k)) return false;
+  return h.freq === 'days' ? h.days.indexOf(parseKey(k).getDay()) >= 0 : true;
+}
+/* toca ese día: los flexibles dejan de tocar cuando ya se cumplieron las veces del periodo */
+function habDueOn(h, k) {
+  if (!habScheduled(h, k)) return false;
+  if (!habFlex(h)) return true;
+  if (habDone(h, k)) return true;
+  const a = habPeriod(h, k)[0];
+  return (k > a ? habCount(h, a, addDays(k, -1)) : 0) < h.times;
+}
+/* veces que pide un periodo, recortado a los días en que el hábito estuvo activo (un hábito que empieza a mitad de semana pide menos) */
+function habNeed(h, a, b) {
+  const x = h.start && h.start > a ? h.start : a, y = h.end && h.end < b ? h.end : b;
+  if (x > y) return 0;
+  let n = 0;
+  for (let k = x; k <= y && n < h.times; k = addDays(k, 1)) n++;
+  return n;
+}
+/* para estadísticas: un hábito diario o de algunos días cuenta el día que toca; uno flexible (veces por semana o mes)
+   cuenta solo los días que se hizo, y al cerrar el periodo suma las veces que faltaron */
+function habDayStats(k) {
+  let due = 0, done = 0;
+  const tk = todayKey();
+  for (const h of habs()) {
+    if (!habFlex(h)) { if (habDueOn(h, k)) { due++; if (habDone(h, k)) done++; } continue; }
+    if (!habActive(h, k)) continue;
+    if (habDone(h, k)) { due++; done++; }
+    const [a, b] = habPeriod(h, k), last = h.end && h.end < b ? h.end : b;
+    if (k === last && last < tk) { const miss = habNeed(h, a, b) - habCount(h, a, b); if (miss > 0) due += miss; }
+  }
+  return { due, done };
+}
+/* periodos cerrados (antes de hoy) que terminan entre from y to: cuántos se cumplieron */
+function habClosed(h, from, to) {
+  let met = 0, total = 0, a = habPeriod(h, to)[0];
+  const tk = todayKey();
+  for (let i = 0; i < 60; i++) {
+    const b = habPeriod(h, a)[1];
+    if (b < from) break;
+    if (b <= to && b < tk) { const need = habNeed(h, a, b); if (need) { total++; if (habCount(h, a, b) >= need) met++; } }
+    a = habPrevPeriod(h, a);
+  }
+  return { met, total };
+}
+/* primer día del hábito: su inicio o, en hábitos viejos sin fecha de inicio, la primera vez que se marcó */
+function habFrom(h) {
+  if (h.start) return h.start;
+  let f = '';
+  for (const k of Object.keys(S.days)) if ((!f || k < f) && habDone(h, k)) f = k;
+  return f;
+}
+function habPrevPeriod(h, a) { return h.freq === 'weekly' ? addDays(a, -7) : monthStart(addDays(a, -1)); }
+function habStreak(h, k) {
+  k = k || todayKey();
+  if (habFlex(h)) {
+    let n = 0;
+    const [a0, b0] = habPeriod(h, k), need0 = habNeed(h, a0, b0);
+    if (need0 && habCount(h, a0, b0 < k ? b0 : k) >= need0) n++;
+    let a = habPrevPeriod(h, a0);
+    for (let i = 0; i < 104; i++) {
+      const b = habPeriod(h, a)[1], need = habNeed(h, a, b);
+      if (!need) { if (h.start && b < h.start) break; a = habPrevPeriod(h, a); continue; }
+      if (habCount(h, a, b) >= need) n++; else break;
+      a = habPrevPeriod(h, a);
+    }
+    return n;
+  }
+  let n = 0, kk = k;
+  if (h.end && kk > h.end) kk = h.end; /* hábito terminado: su racha es la que tenía al terminar */
+  else if (habScheduled(h, kk) && !habDone(h, kk)) kk = addDays(kk, -1);
+  for (let i = 0; i < 1000; i++, kk = addDays(kk, -1)) {
+    if (h.start && kk < h.start) break;
+    if (!habActive(h, kk)) break;
+    if (!habScheduled(h, kk)) continue;
+    if (habDone(h, kk)) n++; else break;
+  }
+  return n;
+}
 function habBestStreak(h, k) {
   if (habFlex(h)) return null;
   let best = 0, cur = 0;
@@ -187,66 +292,4 @@ function habSave() {
   closeSheet();
   renderActive();
   toast(i >= 0 ? 'Hábito actualizado.' : 'Hábito creado: ' + label + '.');
-}
-function habDelete(k) {
-  confirmOrDo('hdel:' + k, () => {
-    saveHabits(habitsList().filter(x => x.k !== k));
-    closeSheet();
-    toast('Hábito borrado. Los días que marcaste se conservan en tu historial.');
-  }, () => { if (S.sheet && S.sheet.kind === 'habit') { habFormSync(); renderSheet(); } else renderActive(); });
-}
-/* agrega hábitos propuestos por la IA */
-function habFromProposal(p) {
-  const freq = { diario: 'daily', dias: 'days', semanal: 'weekly', mensual: 'monthly' }[p.frecuencia] || 'daily';
-  const tk = todayKey(), dur = clampInt(p.duracion_dias, 0, 365, 0);
-  return { k: 'h-' + uid(), label: String(p.nombre || '').trim().slice(0, 60), freq, days: freq === 'days' ? (Array.isArray(p.dias) ? p.dias.filter(n => n >= 0 && n <= 6) : [1, 2, 3, 4, 5]) : [], times: freq === 'weekly' ? clampInt(p.veces, 1, 7, 3) : freq === 'monthly' ? clampInt(p.veces, 1, 31, 4) : 0, start: tk, end: dur ? addDays(tk, dur - 1) : '', remind: '', note: String(p.motivo || '').trim().slice(0, 200), createdAt: Date.now() };
-}
-/* la IA no puede colar hábitos riesgosos: filtros por condición y edad (sin edad se aplican los de menores) */
-const HB_TCA = /calor|kcal|peso|pesar|bascula|cintura|medida|imc|macro|dieta|ayun|restring|porcion|comer menos|no comer|saltar|omitir|quitar|eliminar|solo (verdura|fruta|liquido|agua)|quemar|compens|laxant|purg|vomit|diuretic|ejercicio extra|aunque (este|estes|estoy) cansad|correr \d|\d+ ?km|abdominales diari/;
-const HB_MINOR = /ayun|deficit|saltar(se|me)? (el |la |las |los )?(desayuno|almuerzo|cena|comida|onces|merienda)|omitir|no (desayunar|almorzar|cenar|comer)|contar (calorias|macros)|quemador|quemar \d|suplement|creatina|proteina en polvo|whey|keto|cetogenic|detox|pesarse|pesarme|bascula|comer menos|restring|laxant|diuretic|bebida energetica|energizante/;
-const HB_RENAL = /\b(agua|liquidos?|litros?|vasos?|hidrat\w*|proteinas?|sal|sodio|potasio|fosforo|creatina|suplement\w*|whey|electrolito\w*|bebida deportiva)\b/;
-function habPropBlocked(p) {
-  const t = norm((p.nombre || '') + ' ' + (p.motivo || ''));
-  if (hasCond('tca') && HB_TCA.test(t)) return true;
-  const age = userAge();
-  if ((age == null || age < 18) && HB_MINOR.test(t)) return true;
-  if (hasCond('renal') && HB_RENAL.test(t)) return true;
-  return false;
-}
-function habPropList(list) { return (Array.isArray(list) ? list : []).filter(p => p && p.nombre && !habPropBlocked(p)).slice(0, 6); }
-function habPropHTML(list, src, id) {
-  const ok = habPropList(list);
-  if (!ok.length) return '';
-  const have = new Set(habitsList().map(x => norm(x.label)));
-  const rows = ok.map((p, i) => {
-    const h = habFromProposal(p), added = have.has(norm(h.label));
-    const sub = [habFreqText(habNorm(h)), p.duracion_dias ? 'durante ' + plural(clampInt(p.duracion_dias, 1, 365, 1), 'día', 'días') : ''].filter(Boolean).join(' · ');
-    return '<div class="hprop"><div class="hprop-x"><b>' + esc(h.label) + '</b><small>' + esc(sub) + '</small>' + (p.motivo ? '<span>' + esc(p.motivo) + '</span>' : '') + '</div>' +
-      (added ? '<span class="pill ok">Agregado</span>' : '<button type="button" class="btn sm" id="hp-' + src + '-' + esc(id) + '-' + i + '" data-act="hp-add" data-src="' + src + '" data-id="' + esc(id) + '" data-i="' + i + '"' + (S.readonly ? ' disabled' : '') + '>Agregar</button>') + '</div>';
-  }).join('');
-  const pending = ok.filter(p => !have.has(norm(String(p.nombre).trim().slice(0, 60)))).length;
-  return '<div class="prop hprops"><p class="sh-sec">Hábitos propuestos</p>' + rows +
-    (pending > 1 ? '<button type="button" class="btn sm ghost" id="hpa-' + src + '-' + esc(id) + '" data-act="hp-all" data-src="' + src + '" data-id="' + esc(id) + '"' + (S.readonly ? ' disabled' : '') + '>Agregar todos</button>' : '') + '</div>';
-}
-function habPropSource(src, id) {
-  if (src === 'chat') { const it = S.chat.items[Number(id)]; return it ? it.habits : null; }
-  const it = S.ana.items.find(x => x.id === id);
-  return it ? it.habits : null;
-}
-function habAddProposals(src, id, idx) {
-  if (S.readonly || !S.loaded.habits) return;
-  const ok = habPropList(habPropSource(src, id));
-  const pick = idx == null ? ok : [ok[idx]].filter(Boolean);
-  const list = habitsList().map(x => Object.assign({}, x));
-  const have = new Set(list.map(x => norm(x.label)));
-  let n = 0;
-  for (const p of pick) {
-    const h = habFromProposal(p);
-    if (!h.label || have.has(norm(h.label)) || list.length >= MAX_HABITS) continue;
-    list.push(h); have.add(norm(h.label)); n++;
-  }
-  if (!n) { toast(list.length >= MAX_HABITS ? 'Llegaste al máximo de ' + MAX_HABITS + ' hábitos.' : 'Ya tienes ese hábito.'); return; }
-  saveHabits(list);
-  renderActive();
-  toast(n === 1 ? 'Hábito agregado.' : 'Agregué ' + n + ' hábitos.');
 }

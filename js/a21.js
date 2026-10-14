@@ -1,4 +1,181 @@
 'use strict';
+function coachCardHTML() {
+  const busy = S.ana.busy === 'coach';
+  const items = S.ana.items.filter(x => x.kind === 'coach');
+  const dis = S.readonly || !S.loaded.aianalysis || S.ana.busy ? ' disabled' : '';
+  return '<section class="card ana" id="card-coach"><div class="card-h"><h2>Ideas de hábitos con IA</h2><span class="meta">Con IA</span></div>' +
+    '<p class="prose">Cuéntale qué quieres lograr y te propone hábitos pequeños y realistas que puedes agregar con un toque.</p>' +
+    '<form class="chat-form" data-form="coach" novalidate><label class="lbl sr" for="coach-in">Qué quieres lograr</label><textarea id="coach-in" data-draft rows="2" maxlength="1000" placeholder="Quiero dormir mejor, estudiar más, subir de peso…"' + (S.readonly ? ' readonly' : '') + '>' + esc(draft('coach-in', '')) + '</textarea>' +
+    '<button type="submit" class="btn" id="coach-send"' + dis + '>' + (busy ? 'Pensando…' : 'Pedir ideas') + '</button></form>' +
+    (S.ana.err.coach ? '<p class="form-err">' + esc(S.ana.err.coach) + '</p>' : '') +
+    (items[0] ? anaOutHTML(items[0]) : '') + '</section>';
+}
+function aiDayHTML(c) {
+  if (!c.isToday) return '<div id="card-aiday" hidden></div>';
+  return '<section id="card-aiday" class="card aiday"><div><h2>¿Cómo vas hoy?</h2><p class="hint">' + (hasCond('tca') ? 'La IA revisa tu día: comidas, agua, sueño, ejercicio y hábitos.' : 'La IA revisa tu día: lo que comiste y quemaste, agua, proteína, ejercicio y hábitos.') + '</p></div>' +
+    '<button type="button" class="btn sm" id="aiday-go" data-act="ana-day-go"' + (S.readonly ? ' disabled' : '') + '>Analizar mi día</button></section>';
+}
+
+/* ---------- eventos v4 ---------- */
+function v4Click(act, el, id) {
+  if (v6Click(act, el, id)) return;
+  if (v7Click(act, el, id)) return;
+  if (v8Click(act, el, id)) return;
+  if (v9Click(act, el, id)) return;
+  const st = S.sheet;
+  switch (act) {
+    case 'htab': S.hab.tab = ['rem', 'boss'].indexOf(el.dataset.v) >= 0 ? el.dataset.v : 'hab'; lsSet('ascend-htab', S.hab.tab); renderHabitos(); return true;
+    case 'hab-new': openHabitEdit(null); return true;
+    case 'hab-open': openSheet({ kind: 'hdetail', step: 'detail', k: el.dataset.k, month: monthStart(todayKey()) }); return true;
+    case 'hab-edit': openHabitEdit(el.dataset.k); return true;
+    case 'hab-del': habDelete(el.dataset.k); return true;
+    case 'hab-day': {
+      if (habToggle(el.dataset.k, el.dataset.day)) {
+        if (S.sheet && S.sheet.kind === 'hdetail') renderSheet();
+        if (S.tab === 'habitos') renderHabitos(); else if (S.tab === 'hoy') renderHoy(['boost']);
+      }
+      return true;
+    }
+    case 'hd-month': {
+      if (!st || st.kind !== 'hdetail') return true;
+      const d = parseKey(st.month || monthStart(todayKey()));
+      d.setMonth(d.getMonth() + (Number(el.dataset.d) || 0));
+      const m = keyOf(d).slice(0, 8) + '01';
+      if (m <= monthStart(todayKey())) { st.month = m; renderSheet(); }
+      return true;
+    }
+    case 'hf-freq': if (st && st.kind === 'habit') { habFormSync(); st.f.freq = el.dataset.v; if (st.f.freq === 'weekly' && !(parseInt(st.f.times, 10) <= 7)) st.f.times = '3'; st.err = ''; renderSheet(); } return true;
+    case 'hf-day': if (st && st.kind === 'habit') { habFormSync(); const n = Number(el.dataset.v), j = st.f.days.indexOf(n); if (j >= 0) st.f.days.splice(j, 1); else st.f.days.push(n); renderSheet(); } return true;
+    case 'hf-times': if (st && st.kind === 'habit') { habFormSync(); st.f.times = el.dataset.v; renderSheet(); } return true;
+    case 'hf-end': if (st && st.kind === 'habit') { habFormSync(); st.f.endMode = el.dataset.v; if (st.f.endMode === 'date' && !st.f.end) st.f.end = addDays(st.f.start || todayKey(), 29); renderSheet(); } return true;
+    case 'hf-dur': if (st && st.kind === 'habit') { habFormSync(); st.f.end = addDays(isKey(st.f.start) ? st.f.start : todayKey(), Number(el.dataset.v) - 1); renderSheet(); } return true;
+    case 'hab-coach': { const t = $('#coach-in'); if (t) { try { t.scrollIntoView({ block: 'center' }); t.focus({ preventScroll: true }); } catch (e) {} } return true; }
+    case 'rem-view': S.hab.rview = el.dataset.v; S.hab.newList = false; S.hab.editList = false; S.hab.listColor = null; S.confirmDel = null; renderHabitos(); try { window.scrollTo(0, 0); } catch (e) {} return true;
+    case 'rem-goto': S.hab.tab = 'rem'; S.hab.rview = 'today'; lsSet('ascend-htab', 'rem'); setTab('habitos'); return true;
+    case 'rem-check': remCheck(id); return true;
+    case 'rem-edit': openRem(id); return true;
+    case 'rem-new': openRem(null); return true;
+    case 'rem-del': remDelete(); return true;
+    case 'rem-clear': confirmOrDo('rem-clear', () => { const gone = S.reminders.filter(r => r.done); S.reminders = S.reminders.filter(r => !r.done); for (const r of gone) delDoc('reminders/' + r.id); toast(plural(gone.length, 'recordatorio borrado', 'recordatorios borrados') + '.'); }, renderHabitos); return true;
+    case 'rem-notif':
+      try { Notification.requestPermission().then(() => renderHabitos()); } catch (e) {}
+      return true;
+    case 'rl-new': S.hab.newList = true; S.hab.listColor = RCOLORS[1]; S.formErr.rl = ''; renderHabitos(); focusEl('rl-name'); return true;
+    case 'rl-edit': S.hab.editList = true; S.hab.listColor = rlistOf(S.hab.rview).color; S.drafts['rl-name'] = rlistOf(S.hab.rview).name; S.formErr.rl = ''; renderHabitos(); focusEl('rl-name'); return true;
+    case 'rl-cancel': S.hab.newList = false; S.hab.editList = false; S.hab.listColor = null; delete S.drafts['rl-name']; renderHabitos(); return true;
+    case 'rl-color': { const n = $('#rl-name'); if (n) S.drafts['rl-name'] = n.value; S.hab.listColor = el.dataset.v; renderHabitos(); return true; }
+    case 'rl-del': rlistDelete(); return true;
+    case 'rf-rep': if (st && st.kind === 'rem') { remFormSync(); st.f.rf = el.dataset.v === 'no' ? '' : el.dataset.v; if (st.f.rf && !st.f.due) st.f.due = todayKey(); st.err = ''; renderSheet(); } return true;
+    case 'rf-day': if (st && st.kind === 'rem') { remFormSync(); const n = Number(el.dataset.v), j = st.f.rdays.indexOf(n); if (j >= 0) st.f.rdays.splice(j, 1); else st.f.rdays.push(n); renderSheet(); } return true;
+    case 'rf-end': if (st && st.kind === 'rem') { remFormSync(); st.f.endT = el.dataset.v; if (st.f.endT === 'date' && !st.f.endD) st.f.endD = addDays(st.f.due || todayKey(), 30); renderSheet(); } return true;
+    case 'rf-date': if (st && st.kind === 'rem') {
+      remFormSync();
+      const tk = todayKey(), v = el.dataset.v;
+      st.f.due = v === 'today' ? tk : v === 'tomorrow' ? addDays(tk, 1) : v === 'nextweek' ? addDays(tk, ((8 - parseKey(tk).getDay()) % 7) || 7) : '';
+      if (!st.f.due) { st.f.time = ''; st.f.rf = ''; }
+      renderSheet();
+    } return true;
+    case 'rf-pri': if (st && st.kind === 'rem') { remFormSync(); st.f.pri = Number(el.dataset.v) || 0; renderSheet(); } return true;
+    case 'rf-flag': if (st && st.kind === 'rem') { remFormSync(); st.f.flag = !st.f.flag; renderSheet(); } return true;
+    case 'gym-open': openGym(null); return true;
+    case 'gym-edit': openGym(id); return true;
+    case 'gym-min': if (st && st.kind === 'gym') { gymSync(); st.min = el.dataset.v; renderSheet(); } return true;
+    case 'gym-lv': if (st && st.kind === 'gym') { gymSync(); st.lv = el.dataset.v; renderSheet(); } return true;
+    case 'gym-addx': if (st && st.kind === 'gym') { gymSync(); if (st.ex.length >= 25) { sheetErr(st, 'Máximo 25 ejercicios por entrenamiento.'); return true; } st.q = ''; goStep('pick'); if (finePointer()) focusEl('gym-q'); } return true;
+    case 'gym-pick': if (st && st.kind === 'gym') {
+      const n = String(el.dataset.n || '').trim().slice(0, 50);
+      if (!n) return true;
+      const prev = lastGym(), ref = prev && (prev.ex || []).find(x => norm(x.n) === norm(n));
+      st.ex.push({ n, sets: ref && ref.sets.length ? ref.sets.map(s => ({ r: String(s.r || ''), kg: s.kg == null ? '' : String(s.kg) })) : [{ r: '10', kg: '' }, { r: '10', kg: '' }, { r: '10', kg: '' }] });
+      st.q = '';
+      goStep('gym');
+      const c = $('#sheet-card'); if (c) c.scrollTop = c.scrollHeight;
+    } return true;
+    case 'gym-xdel': if (st && st.kind === 'gym') { gymSync(); st.ex.splice(Number(el.dataset.i), 1); renderSheet(); } return true;
+    case 'gym-sadd': if (st && st.kind === 'gym') { gymSync(); const x = st.ex[Number(el.dataset.i)]; if (x && x.sets.length < 15) { const l = x.sets[x.sets.length - 1] || { r: '10', kg: '' }; x.sets.push({ r: l.r, kg: l.kg }); renderSheet(); } } return true;
+    case 'gym-sdel': if (st && st.kind === 'gym') { gymSync(); const x = st.ex[Number(el.dataset.i)]; if (x && x.sets.length > 1) { x.sets.splice(Number(el.dataset.j), 1); renderSheet(); } } return true;
+    case 'gym-last': if (st && st.kind === 'gym') { const a = lastGym(); if (a) { st.name = a.title || ''; st.min = String(a.min || 60); st.lv = a.lv || 'moderada'; st.ex = gymCopyEx(a.ex); renderSheet(); } } return true;
+    case 'gym-rt': if (st && st.kind === 'gym') { const r = S.routines.find(x => x.id === id); if (r) { st.name = r.name; st.min = String(r.min || 60); st.lv = r.lv || 'moderada'; st.ex = gymCopyEx(r.ex); st.saveRt = false; renderSheet(); } } return true;
+    case 'gym-rtsave': if (st && st.kind === 'gym') { gymSync(); st.saveRt = !st.saveRt; renderSheet(); } return true;
+    case 'gym-rtmanage': if (st && st.kind === 'gym') { gymSync(); st.rtManage = !st.rtManage; renderSheet(); } return true;
+    case 'gym-rtdel': if (st && st.kind === 'gym') { gymSync(); confirmOrDo('rt:' + id, () => { S.routines = S.routines.filter(r => r.id !== id); delDoc('routines/' + id); }, () => { if (S.sheet && S.sheet.kind === 'gym') renderSheet(); }); } return true;
+    case 'ana-p': {
+      if (S.ana.busy) return true;
+      if (el.dataset.kind === 'hab') S.ana.hperiod = el.dataset.v; else S.ana.period = el.dataset.v;
+      renderActive();
+      return true;
+    }
+    case 'ana-run': anaRun(el.dataset.kind); return true;
+    case 'ana-apply': anaApply(id); return true;
+    case 'ana-day-go': S.ana.period = 'day'; setTab('progreso'); anaRun('gen'); return true;
+    case 'hp-add': habAddProposals(el.dataset.src, el.dataset.id, Number(el.dataset.i)); return true;
+    case 'hp-all': habAddProposals(el.dataset.src, el.dataset.id, null); return true;
+    default: return false;
+  }
+}
+function v4Input(t) {
+  const st = S.sheet;
+  if (t.dataset.hf && st && st.kind === 'habit') { st.f[t.dataset.hf] = t.value; return true; }
+  if (t.dataset.rf && st && st.kind === 'rem') {
+    st.f[t.dataset.rf] = t.value;
+    if (t.dataset.rf === 'due') { const tm = $('#rf-time'); if (tm) tm.disabled = !t.value; }
+    return true;
+  }
+  if (t.dataset.gy && st && st.kind === 'gym') {
+    st[t.dataset.gy] = t.value;
+    if (t.dataset.gy === 'min') for (const b of $$('[data-act="gym-min"]', $('#sheet-card'))) b.setAttribute('aria-pressed', String(b.dataset.v === String(t.value).trim()));
+    const e = $('#gym-est'); if (e) e.textContent = gymEstimate(st);
+    return true;
+  }
+  if (t.dataset.gs && st && st.kind === 'gym') {
+    const [i, j, f] = t.dataset.gs.split(':');
+    if (st.ex[i] && st.ex[i].sets[j]) st.ex[i].sets[j][f] = t.value;
+    const e = $('#gym-est'); if (e) e.textContent = gymEstimate(st);
+    return true;
+  }
+  if (t.dataset.gq && st && st.kind === 'gym') {
+    st.q = t.value;
+    const r = $('#gym-res');
+    if (r) { const tmp = document.createElement('div'); tmp.innerHTML = shGymPickHTML(st); const nr = tmp.querySelector('#gym-res'); if (nr) r.innerHTML = nr.innerHTML; }
+    return true;
+  }
+  return false;
+}
+function v4Submit(kind) {
+  if (v7Submit(kind)) return true;
+  switch (kind) {
+    case 'sh-habit': habSave(); return true;
+    case 'sh-rem': remSave(); return true;
+    case 'sh-gym': gymSave(); return true;
+    case 'gym-search': { const st = S.sheet; const q = st && String(st.q || '').trim(); if (q) { const b = $('#gym-res .fres'); if (b) b.click(); } return true; }
+    case 'rem-quick': remQuickAdd(); return true;
+    case 'rl-new': rlistSave(false); return true;
+    case 'rl-edit': rlistSave(true); return true;
+    case 'coach': { const t = $('#coach-in'); anaRun('coach', t ? t.value : ''); return true; }
+    default: return false;
+  }
+}
+function v4Subscribe() {
+  const remH = colHandler('reminders', byCreated, () => { if (S.tab === 'habitos') renderHabitos(); else if (S.tab === 'hoy') renderHoy(['rems']); });
+  store.watchCol('reminders', list => remH(list.filter(it => it.data && typeof it.data === 'object').map(it => ({ id: it.id, data: remFix(it.data) }))));
+  store.watchCol('routines', colHandler('routines', byCreated, () => { if (S.sheet && S.sheet.kind === 'gym' && S.sheet.step === 'gym') { gymSync(); renderSheet(); } }));
+  store.watchDoc('config/rlists', data => {
+    S.loaded.rlists = true;
+    if (dirty.has('config/rlists')) return;
+    S.rlists = data && Array.isArray(data.items) ? data : null;
+    if (S.tab === 'habitos') renderHabitos();
+  });
+  store.watchDoc('config/aianalysis', data => {
+    S.loaded.aianalysis = true;
+    if (dirty.has('config/aianalysis')) return;
+    S.ana.items = data && Array.isArray(data.items) ? data.items.filter(x => x && x.id && typeof x.text === 'string') : [];
+    if (S.tab === 'progreso' || S.tab === 'habitos') renderActive();
+  });
+  store.watchDoc('config/habits', () => { if (S.tab === 'habitos') renderHabitos(); });
+  clearInterval(v4Tick);
+  v4Tick = setInterval(v4Notify, 30000);
+  setTimeout(v4Notify, 1500);
+}
 function v4Change(t) { return !!(t.dataset && (t.dataset.rf || t.dataset.hf) && v4Input(t)); }
 HOY.rems = remsTodayHTML;
 HOY.aiday = aiDayHTML;
@@ -152,261 +329,3 @@ const SEC_PBKDF_IT = 600000, SEC_REC_IT = 100000;
 const SEC_B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const SEC_IDLE = [[0, 'Nunca'], [15, '15 minutos'], [60, '1 hora'], [480, '8 horas']];
 const SEC_COMMON = ['password', 'contrasena', 'contraseña', '123456', '12345678', '123456789', '1234567890', 'qwerty', 'qwertyuiop', 'asdfgh', 'zxcvbn', 'abc123', '111111', 'iloveyou', 'teamo', 'admin', 'ascend', 'colombia', 'futbol', 'football', 'millonarios', 'nacional', 'america', 'welcome', 'bienvenido'];
-
-/* ---------- utilidades de cifrado (WebCrypto) ---------- */
-const secTE = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null, secTD = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
-function secB64e(buf) {
-  const a = new Uint8Array(buf);
-  let s = '';
-  for (let i = 0; i < a.length; i += 0x8000) s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000));
-  return btoa(s);
-}
-function secB64d(s) { const b = atob(String(s || '')); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
-const secRnd = n => crypto.getRandomValues(new Uint8Array(n));
-function secCryptoOK() { try { return !!(secTE && secTD && window.crypto && crypto.subtle && crypto.getRandomValues); } catch (e) { return false; } }
-const secAad = s => secTE.encode('ascend:' + store.userId + ':' + s);
-const secNormPass = p => String(p || '').normalize('NFKC');
-const secNormCode = c => String(c || '').toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1').replace(/[^0-9A-Z]/g, '');
-async function secKek(secret, salt, it) {
-  const base = await crypto.subtle.importKey('raw', secTE.encode(secret), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: it, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-}
-async function secSeal(key, bytes, aad) {
-  const iv = secRnd(12);
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad }, key, bytes);
-  return { iv: secB64e(iv), ct: secB64e(ct) };
-}
-async function secOpen(key, box, aad) {
-  if (!box || typeof box.iv !== 'string' || typeof box.ct !== 'string') throw new Error('caja inválida');
-  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: secB64d(box.iv), additionalData: aad }, key, secB64d(box.ct)));
-}
-const secImportKey = raw => crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-const secIt = (v, fb) => Math.min(5000000, Math.max(100000, Number(v) || fb));
-function secNewCode() { const r = secRnd(32); let s = ''; for (let i = 0; i < 32; i++) s += SEC_B32[r[i] & 31]; return s.match(/.{4}/g).join('-'); }
-/* cambia la frase y/o el código de recuperación que envuelven la llave de datos */
-async function secRewrap(meta, raw, o) {
-  const m = Object.assign({}, meta);
-  if (o.pass != null) { const s = secRnd(16); m.s = secB64e(s); m.it = SEC_PBKDF_IT; m.w = await secSeal(await secKek(secNormPass(o.pass), s, SEC_PBKDF_IT), raw, secAad('vault-pass')); }
-  if (o.code != null) { const rs = secRnd(16); m.rs = secB64e(rs); m.rit = SEC_REC_IT; m.rw = await secSeal(await secKek(secNormCode(o.code), rs, SEC_REC_IT), raw, secAad('vault-rec')); }
-  m.at = Date.now();
-  return m;
-}
-async function secMakeMeta(raw, key, pass, code) {
-  const base = { v: 1, alg: 'AES-256-GCM', kdf: 'PBKDF2-SHA256', chk: await secSeal(key, secTE.encode('ascend-ok'), secAad('vault-check')) };
-  return secRewrap(base, raw, { pass, code });
-}
-/* abre la llave de datos con la frase (o con el código de recuperación); falla si no es correcta */
-async function secRawFrom(meta, secret, rec) {
-  const k = await secKek(rec ? secNormCode(secret) : secNormPass(secret), secB64d(rec ? meta.rs : meta.s), secIt(rec ? meta.rit : meta.it, rec ? SEC_REC_IT : SEC_PBKDF_IT));
-  return secOpen(k, rec ? meta.rw : meta.w, secAad(rec ? 'vault-rec' : 'vault-pass'));
-}
-async function secCheck(key, meta) {
-  try { return secTD.decode(await secOpen(key, meta.chk, secAad('vault-check'))) === 'ascend-ok'; } catch (e) { return false; }
-}
-const secIsEnc = d => !!(d && typeof d === 'object' && d.__e === 1 && typeof d.iv === 'string' && typeof d.ct === 'string');
-async function secEncDoc(path, data, key) {
-  const box = await secSeal(key, secTE.encode(JSON.stringify(data)), secAad('doc:' + path));
-  return { __e: 1, iv: box.iv, ct: box.ct };
-}
-async function secDecDoc(path, d, key) { return JSON.parse(secTD.decode(await secOpen(key, d, secAad('doc:' + path)))); }
-
-/* llave recordada en este dispositivo: IndexedDB guarda la CryptoKey sin poder exportarla */
-function secIdb() {
-  return new Promise((res, rej) => {
-    try {
-      const r = indexedDB.open('ascend-sec', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('keys');
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-    } catch (e) { rej(e); }
-  });
-}
-async function secIdbOp(mode, fn) {
-  const db = await secIdb();
-  return new Promise((res, rej) => {
-    const tx = db.transaction('keys', mode);
-    const req = fn(tx.objectStore('keys'));
-    tx.oncomplete = () => { db.close(); res(req ? req.result : undefined); };
-    tx.onerror = tx.onabort = () => { db.close(); rej(tx.error); };
-  });
-}
-const secKeyGet = uid => (uid ? secIdbOp('readonly', s => s.get(uid)).catch(() => null) : Promise.resolve(null));
-const secKeyPut = (uid, key) => (uid ? secIdbOp('readwrite', s => s.put(key, uid)).catch(() => {}) : Promise.resolve());
-const secKeyDel = uid => secIdbOp('readwrite', s => (uid ? s.delete(uid) : s.clear())).catch(() => {});
-
-/* ---------- almacenamiento: descifra al leer, cifra al guardar ---------- */
-async function secFetchRows() {
-  const rows = [];
-  for (let from = 0; from < 100000; from += 1000) {
-    const res = await sb.from('docs').select('path,data').order('path', { ascending: true }).range(from, from + 999);
-    if (res.error) throw normErr(res.error, res.status);
-    const batch = res.data || [];
-    for (const r of batch) rows.push(r);
-    if (batch.length < 1000) break;
-  }
-  return rows;
-}
-async function secLoad(accept) {
-  const rows = await secFetchRows();
-  let meta = null;
-  const next = {}, enc = [], plain = [];
-  for (const r of rows) {
-    if (!r || !r.path) continue;
-    if (r.path === SEC.VAULT) { meta = r.data && r.data.v === 1 ? r.data : null; continue; }
-    if (r.path.indexOf('sec/') === 0) continue;
-    if (secIsEnc(r.data)) enc.push(r); else { next[r.path] = r.data; plain.push(r.path); }
-  }
-  const v = SEC.vault, bad = [];
-  if (!meta) {
-    if (v.key) { v.key = null; v.meta = null; secKeyDel(store.userId); } /* se desactivó en otro dispositivo */
-    for (const r of enc) bad.push(r.path); /* cifrados sin bóveda: no se pueden abrir, se ignoran */
-  } else {
-    if (!v.key || !(await secCheck(v.key, meta))) {
-      v.key = null;
-      if (S.dataReady) { secKeyDel(store.userId); setTimeout(() => location.reload(), 300); }
-      throw { code: 'locked', message: 'Tus datos están cifrados con otra llave.' };
-    }
-    v.meta = meta;
-    const key = v.key;
-    await Promise.all(enc.map(async r => { try { next[r.path] = await secDecDoc(r.path, r.data, key); } catch (e) { bad.push(r.path); } }));
-  }
-  if (accept && !accept()) return false;
-  v.bad = bad;
-  if (bad.length) console.warn('Ascend: registros cifrados que no se pudieron abrir', bad.length);
-  this.docs = next;
-  this.lastLoad = Date.now();
-  if (v.key && plain.length) setTimeout(() => secHeal(plain), 60);
-  return true;
-}
-async function secSet(path, data) {
-  this.wv++;
-  while (secGateP) await secGateP;
-  SEC.inflight++;
-  try {
-    const key = SEC.vault.key;
-    return await this.retry(async () => {
-      const put = key && path.indexOf('sec/') !== 0 ? await secEncDoc(path, data, key) : data;
-      const res = await sb.from('docs').upsert({ user_id: this.userId, path, data: put, updated_at: new Date().toISOString() }, { onConflict: 'user_id,path' });
-      if (res.error) throw normErr(res.error, res.status);
-      this.docs[path] = clone(data);
-      this.wv++;
-    });
-  } finally { SEC.inflight--; }
-}
-async function secUpsertRows(rows) {
-  for (let i = 0; i < rows.length; i += 100) {
-    const res = await store.retry(async () => {
-      const r = await sb.from('docs').upsert(rows.slice(i, i + 100), { onConflict: 'user_id,path' });
-      if (r.error) throw normErr(r.error, r.status);
-      return r;
-    });
-    void res;
-  }
-}
-async function secPutRaw(path, data) { await secUpsertRows([{ user_id: store.userId, path, data, updated_at: new Date().toISOString() }]); }
-/* espera a que no haya nada guardándose y bloquea guardados nuevos mientras corre fn */
-async function secQuiet() {
-  saver.flushAll();
-  for (let i = 0; i < 200; i++) {
-    if (!saver.pend.size && !saver.busy.size && !deleting.size && !SEC.inflight) return;
-    await wait(100);
-  }
-  throw new Error('Todavía se están guardando cambios. Espera unos segundos e intenta de nuevo.');
-}
-async function secWithGate(fn) {
-  while (secGateP) await secGateP;
-  let done;
-  secGateP = new Promise(r => { done = r; });
-  try {
-    for (let i = 0; i < 150 && SEC.inflight > 0; i++) await wait(100);
-    return await fn();
-  } finally { secGateP = null; done(); }
-}
-async function secEncryptPaths(paths, key) {
-  const now = new Date().toISOString(), rows = [];
-  for (const p of paths) {
-    if (p.indexOf('sec/') === 0 || !Object.prototype.hasOwnProperty.call(store.docs, p)) continue;
-    rows.push({ user_id: store.userId, path: p, data: await secEncDoc(p, store.docs[p], key), updated_at: now });
-  }
-  await secUpsertRows(rows);
-  return rows.length;
-}
-/* registros que quedaron sin cifrar (por ejemplo, guardados desde otro dispositivo sin la bóveda abierta) */
-async function secHeal(paths) {
-  const key = SEC.vault.key;
-  if (!key || S.readonly) return;
-  try { await secWithGate(() => secEncryptPaths(paths.filter(p => !dirty.has(p)), key)); } catch (e) { /* se reintenta en la próxima carga */ }
-}
-
-/* ---------- bóveda: activar, cambiar, desactivar ---------- */
-async function secVaultEnable(pass, code, remember) {
-  await secQuiet();
-  await secWithGate(async () => {
-    const raw = secRnd(32);
-    const key = await secImportKey(raw);
-    const meta = await secMakeMeta(raw, key, pass, code);
-    raw.fill(0);
-    await secPutRaw(SEC.VAULT, meta); /* primero la llave envuelta: así nunca hay datos cifrados sin forma de abrirlos */
-    SEC.vault.meta = meta;
-    SEC.vault.key = key;
-    await secEncryptPaths(Object.keys(store.docs), key);
-    SEC.vault.remembered = !!remember;
-    if (remember) await secKeyPut(store.userId, key); else await secKeyDel(store.userId);
-  });
-}
-async function secVaultDisable(pass) {
-  const raw = await secRawFrom(SEC.vault.meta, pass);
-  raw.fill(0);
-  await secQuiet();
-  await secWithGate(async () => {
-    const now = new Date().toISOString();
-    const rows = Object.keys(store.docs).filter(p => p.indexOf('sec/') !== 0).map(p => ({ user_id: store.userId, path: p, data: store.docs[p], updated_at: now }));
-    await secUpsertRows(rows);
-    const left = (await secFetchRows()).filter(r => r.path !== SEC.VAULT && secIsEnc(r.data) && !Object.prototype.hasOwnProperty.call(store.docs, r.path));
-    for (const r of left) { const res = await sb.from('docs').delete().eq('user_id', store.userId).eq('path', r.path); if (res.error) throw normErr(res.error, res.status); }
-    const res = await sb.from('docs').delete().eq('user_id', store.userId).eq('path', SEC.VAULT);
-    if (res.error) throw normErr(res.error, res.status);
-    SEC.vault.key = null; SEC.vault.meta = null; SEC.vault.bad = [];
-  });
-  await secKeyDel(store.userId);
-  SEC.vault.remembered = false;
-}
-async function secVaultRewrap(pass, o) {
-  const raw = await secRawFrom(SEC.vault.meta, pass);
-  const meta = await secRewrap(SEC.vault.meta, raw, o);
-  raw.fill(0);
-  await secPutRaw(SEC.VAULT, meta);
-  SEC.vault.meta = meta;
-}
-
-/* ---------- pantallas de bloqueo (antes de abrir la app) ---------- */
-function secGateEl() {
-  let g = $('#sec-gate');
-  if (!g) {
-    g = document.createElement('div');
-    g.id = 'sec-gate';
-    g.className = 'auth';
-    const b = $('#splash .auth-brand');
-    g.innerHTML = '<div class="auth-card">' + (b ? b.outerHTML : '') + '<div class="auth-box" id="sec-gate-box"></div></div>';
-    document.body.appendChild(g);
-  }
-  for (const s of ['#splash', '#auth', '#app']) { const n = $(s); if (n) n.hidden = true; }
-  g.hidden = false;
-  return g;
-}
-function secGateClose() { const g = $('#sec-gate'); if (g) { g.hidden = true; g.onsubmit = null; g.onclick = null; const b = $('#sec-gate-box'); if (b) b.innerHTML = ''; } }
-function secCodeBoxHTML(code, pre) {
-  return '<div class="sec-code" id="' + pre + '-code" aria-label="Código de recuperación">' + esc(code) + '</div>' +
-    '<div class="row"><button type="button" class="btn sm quiet" id="' + pre + '-copy" data-act="sec-copy">Copiar</button><button type="button" class="btn sm quiet" id="' + pre + '-dl" data-act="sec-dl">Descargar como archivo</button></div>';
-}
-function secCopy(code) {
-  try { navigator.clipboard.writeText(code).then(() => toast('Código copiado.'), () => toast('No se pudo copiar: escríbelo a mano.')); } catch (e) { toast('No se pudo copiar: escríbelo a mano.'); }
-}
-function secDownload(code) {
-  const txt = 'Ascend · código de recuperación del cifrado\n\n' + code + '\n\nGuárdalo en un lugar seguro y privado. Con este código puedes abrir tus datos si olvidas tu frase secreta.\nCreado: ' + new Date().toLocaleString('es-CO') + '\n';
-  const url = URL.createObjectURL(new Blob([txt], { type: 'text/plain' }));
-  const a = document.createElement('a');
-  a.href = url; a.download = 'ascend-codigo-de-recuperacion.txt';
-  document.body.appendChild(a); a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
-}
