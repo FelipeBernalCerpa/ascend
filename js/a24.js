@@ -236,9 +236,21 @@ async function socialLoadMe() {
   } catch (e) { if (socialNotReady(e)) S.social.ready = false; S.social.loadedMe = true; }
 }
 async function socialInit() {
+  S.social._initing = true;
   await socialLoadMe();
+  S.social._initing = false;
   if (S.social.has && S.daysLoaded) socialPublish(true);
   if (S.tab === 'ajustes') renderAjustes();
+  else if (S.tab === 'progreso') renderProgreso();
+}
+function socialMaybeInit() {
+  if (!sb || typeof store === 'undefined' || !store.userId) return;
+  if (S.social.loadedMe && S.social.ready) return;
+  if (S.social._initing) return;
+  const now = Date.now();
+  if (S.social._lastTry && now - S.social._lastTry < 4000) return;
+  S.social._lastTry = now;
+  socialInit();
 }
 async function socialPublish(force) {
   if (!sb || !store.userId || !S.social.profile) return;
@@ -326,13 +338,12 @@ function socRows(list, global) {
       '<span class="lb-xp">' + fmtInt(r.week_xp || 0) + ' XP</span></div>';
   }).join('') + '</div>';
 }
-function socialMaybeInit() { if (!S.social.loadedMe && sb && typeof store !== 'undefined' && store.userId) socialInit(); }
 function rankingCardHTML() {
   socialMaybeInit();
   if (!S.social.has) {
     return '<section class="card" id="card-rank"><div class="card-h"><h2>Ranking</h2></div>' +
       (S.social.ready ? '<p class="empty">Activa el ranking en <b>Ajustes → Amigos y ranking</b> para competir con tus amigos y en el mundo.</p>'
-        : '<p class="empty">El ranking todavía no está disponible.</p>') + '</section>';
+        : '<p class="empty">El ranking todavía no está disponible.</p><button type="button" class="btn sm quiet" data-act="soc-retry">Reintentar</button>') + '</section>';
   }
   const v = S.social.view;
   if ((v === 'friends' && !S.social.fboard) || (v === 'global' && !S.social.gboard)) socialLoadBoards();

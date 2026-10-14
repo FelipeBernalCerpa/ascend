@@ -3,6 +3,11 @@ function socialCardHTML() {
   socialMaybeInit();
   const dis = S.social.busy ? ' disabled' : '';
   let inner;
+  if (!S.social.ready) {
+    inner = '<p class="prose">El ranking todavía no está disponible. Si ya corriste el SQL en Supabase, espera un momento y reintenta.</p>' +
+      '<button type="button" class="btn sm quiet" data-act="soc-retry">Reintentar</button>';
+    return '<section class="card" id="card-social"><div class="card-h"><h2>Amigos y ranking</h2></div>' + inner + '</section>';
+  }
   if (!S.social.has) {
     inner = '<p class="prose">Compite con tus amigos y en el mundo. Se comparte <b>solo</b> tu alias, nivel, racha y logros — nunca tu salud.</p>' +
       '<div class="field"><label class="lbl" for="soc-name">Tu alias</label><input type="text" id="soc-name" data-draft maxlength="20" autocomplete="off" placeholder="Ej: felipe_fit" value="' + esc(draft('soc-name', '')) + '"></div>' +
@@ -23,6 +28,7 @@ function socialCardHTML() {
 
 function v8Click(act, el, id) {
   switch (act) {
+    case 'soc-retry': S.social.ready = true; S.social.loadedMe = false; S.social._lastTry = 0; socialInit(); return true;
     case 'soc-setup': socialSetup(); return true;
     case 'soc-add': socialAddFriend(); return true;
     case 'soc-public': socialSetPublic(!(S.social.profile && S.social.profile.is_public !== false)); return true;
