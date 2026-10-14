@@ -1,4 +1,223 @@
 'use strict';
+function proposalHTML(pr, i, applied) {
+  const chk = proposalCheck(pr), keys = Object.keys(chk.out);
+  const rows = keys.map(k => '<span class="pv"><span>' + PROP_LABELS[k][0] + '</span><b>' + (k === 'sleepGoal' ? fmtNum(chk.out[k], 1) : fmtInt(chk.out[k])) + (PROP_LABELS[k][1] ? ' ' + PROP_LABELS[k][1] : '') + '</b></span>').join('');
+  const note = chk.skipped.length ? '<p class="hint">No se aplica en tu caso: ' + esc(chk.skipped.join(', ')) + '.</p>' : '';
+  if (!rows) return note ? '<div class="prop">' + note + '</div>' : '';
+  return '<div class="prop"><p class="sh-sec">Metas propuestas</p><div class="prev-g">' + rows + '</div>' + note +
+    (applied ? '<p class="pill ok">Aplicadas</p>' : '<button type="button" class="btn sm" id="ai-apply-' + i + '" data-act="ai-apply" data-i="' + i + '"' + (S.readonly ? ' disabled' : '') + '>Aplicar a mis metas</button>') + '</div>';
+}
+function chatCardHTML() {
+  const c = S.chat, items = c.items;
+  const dis = S.readonly || !S.loaded.aichat || c.busy ? ' disabled' : '';
+  const armed = S.confirmDel === 'chat-clear';
+  const QUICK = ['Ayúdame a fijar mis metas', '¿Qué como hoy con lo que me falta?', 'Ayúdame con mis hábitos', 'Ideas de desayuno para mi plan'];
+  return '<section class="card" id="card-ai"><div class="card-h"><h2>Asistente</h2><span class="meta">Con IA</span></div>' +
+    (items.length ? '<div class="chat" id="chat-log" aria-live="polite">' + items.map((it, i) => it.role === 'user'
+        ? '<div class="msg me">' + esc(it.text) + '</div>'
+        : '<div class="msg ai">' + fmtAiText(it.text) + (it.prop ? proposalHTML(it.prop, i, it.applied) : '') + (it.habits ? habPropHTML(it.habits, 'chat', i) : '') + '</div>').join('') +
+        (c.busy ? '<div class="msg ai typing">Pensando…</div>' : '') + '</div>'
+      : '<p class="prose">Pregúntale por tus metas, ideas de comidas con lo que te falta hoy o por qué tu peso no cambia. Ve tu plan y tus registros para responderte.</p>' +
+        (c.busy ? '<p class="hint">Pensando…</p>' : '<div class="quick">' + QUICK.map((q, i) => '<button type="button" class="xbtn" id="chat-q' + i + '" data-act="chat-quick" data-q="' + esc(q) + '"' + dis + '>' + esc(q) + '</button>').join('') + '</div>')) +
+    (c.err ? '<p class="form-err" id="chat-err">' + esc(c.err) + '</p>' : '') +
+    '<form class="chat-form" data-form="chat" novalidate><label class="lbl sr" for="chat-in">Tu pregunta</label><textarea id="chat-in" data-draft rows="2" maxlength="1500" placeholder="Escribe tu pregunta…"' + (S.readonly ? ' readonly' : '') + '>' + esc(draft('chat-in', '')) + '</textarea>' +
+    '<button type="submit" class="btn" id="chat-send"' + dis + '>Enviar</button></form>' +
+    '<p class="hint">Responde con IA (Claude): puede equivocarse y no reemplaza a tu médico. Para responder recibe tu mensaje y un resumen de tu plan y tus registros.' + (c.remaining != null ? ' Te quedan ' + c.remaining + ' mensajes hoy.' : '') + '</p>' +
+    (items.length ? '<button type="button" class="link" id="chat-clear" data-act="chat-clear"' + (c.busy ? ' disabled' : '') + '>' + (armed ? 'Toca otra vez para borrar la conversación' : 'Borrar conversación') + '</button>' : '') +
+  '</section>';
+}
+function renderChat() {
+  if (S.tab !== 'guia') return;
+  const el = $('#card-ai');
+  if (!el) return;
+  replaceEl(el, chatCardHTML());
+  const log = $('#chat-log');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+function saveChat() { if (S.loaded.aichat) saver.queue('config/aichat', { items: clone(S.chat.items.slice(-MAX_CHAT)) }, 200); }
+function aiContext() {
+  const p = prof(), tk = todayKey(), L = [];
+  const age = ageOn(p.birth, tk), w = latestOn('weight', tk), h = latestOn('height', tk);
+  L.push('Fecha de hoy: ' + fmtDate(tk));
+  L.push('Edad: ' + (age != null ? age + ' años' : 'sin dato') + '. Sexo: ' + (p.sex === 'm' ? 'hombre' : p.sex === 'f' ? 'mujer' : 'sin dato') + '.');
+  L.push('Estatura: ' + (h ? fmtNum(h, 1) + ' cm' : 'sin dato') + '. Peso: ' + (w ? fmtNum(w, 1) + ' kg' : 'sin dato') + '.');
+  const ws = S.measures.filter(m => hasNum(m.weight)).sort(byDate).slice(-5);
+  if (ws.length > 1) L.push('Pesos recientes: ' + ws.map(m => fmtShort(m.date) + ' ' + fmtNum(m.weight, 1) + ' kg').join('; ') + '.');
+  L.push('Objetivo: ' + (goalLabel(p.goal) || 'sin definir') + (p.goal && p.goal !== 'mantener' ? ' (ritmo ' + (p.pace || 'suave') + ')' : '') + '. Actividad: ' + ((labelsOf(ACTIVITY, [p.activity])[0] || 'sin dato').toLowerCase()) + '.');
+  L.push('Alimentación: ' + (labelsOf(DIETS, p.diet).join(', ').toLowerCase() || 'sin restricciones') + '. Condiciones de salud: ' + (labelsOf(CONDITIONS, p.cond).join(', ').toLowerCase() || 'ninguna registrada') + '.');
+  const meds = S.meds.filter(m => m.active).map(m => m.name).filter(Boolean);
+  if (meds.length) L.push('Medicamentos activos: ' + meds.join(', ').slice(0, 400) + '.');
+  const s = S.settings, g = s.nutri || {};
+  const gl = NUTRIENTS.filter(n => g[n.k] != null).map(n => n.label.toLowerCase() + ' ' + ({ meta: 'meta', max: 'máximo', min: 'mínimo' })[goalKind(n.k)] + ' ' + fmtNut(n.k, g[n.k]) + ' ' + n.unit);
+  L.push('Metas actuales: ' + (gl.length ? gl.join('; ') : 'sin metas de nutrientes') + '; agua ' + fmtInt(s.waterGoal) + ' ml; sueño ' + fmtNum(s.sleepGoal, 1) + ' h' + (s.stepGoal ? '; pasos ' + fmtInt(s.stepGoal) : '') + '.');
+  const d = getDay(tk), nu = dayNutri(d);
+  if (nu.count) {
+    L.push('Hoy lleva: ' + NUTRIENTS.map(n => n.label.toLowerCase() + ' ' + fmtNut(n.k, nu[n.k]) + ' ' + n.unit).join('; ') + '.');
+    L.push('Comidas de hoy: ' + d.food.slice(0, 25).map(e => mealLabel(e.m) + ': ' + String(e.name || '').slice(0, 60) + ' (' + fmtInt(e.g) + ' ' + unitOf(e.l) + ')').join('; ') + '.');
+  } else L.push('Hoy no ha registrado comida.');
+  const en = energyFor(tk, d);
+  L.push('Hoy: agua ' + fmtInt(sum(d.water)) + ' ml; pasos ' + fmtInt(d.steps || 0) + (Array.isArray(d.acts) && d.acts.length ? '; ejercicio: ' + d.acts.map(a => String(a.name || '').slice(0, 40) + ' ' + a.min + ' min').join(', ') : '') + (en.total != null ? '; gasto estimado ' + fmtInt(r10(en.total)) + ' kcal' : '') + '.');
+  const r = statsRange(7);
+  if (r.fN) L.push('Últimos 7 días (' + r.fN + ' con comida registrada), promedio por día: ' + fmtInt(r.nut.kcal / r.fN) + ' kcal; proteína ' + fmtNut('p', r.nut.p / r.fN) + ' g; grasas ' + fmtNut('f', r.nut.f / r.fN) + ' g; carbohidratos ' + fmtNut('c', r.nut.c / r.fN) + ' g; sodio ' + fmtInt(r.nut.na / r.fN) + ' mg.');
+  if (r.sN) L.push('Sueño promedio 7 días: ' + fmtNum(r.sSum / r.sN, 1) + ' h.');
+  const gi = GUIDE_SECTIONS.map(sec => guideList(sec.k).map(it => sec.label + ': ' + it.t)).flat();
+  if (gi.length) L.push('Indicaciones que guardó de sus médicos: ' + gi.join('; ').slice(0, 1200) + '.');
+  const hl = habs();
+  if (hl.length) L.push('Hábitos: ' + hl.map(h => h.label + ' (' + habFreqText(h).toLowerCase() + (habDone(h, tk) ? ', hecho hoy' : habDueOn(h, tk) ? ', pendiente hoy' : '') + (habStreak(h, tk) ? ', ' + habStreakText(h, habStreak(h, tk)) : '') + ')').join('; ').slice(0, 900) + '.');
+  const rp = S.reminders.filter(r => !r.done && r.due && r.due <= tk);
+  if (rp.length) L.push('Recordatorios para hoy o vencidos: ' + rp.slice(0, 10).map(r => r.t).join('; ').slice(0, 400) + '.');
+  return L.join('\n').slice(0, 6000);
+}
+function chatErrText(res, data) {
+  if (!res) return 'Sin conexión. Revisa tu internet e intenta de nuevo.';
+  const e = data && data.error;
+  if (res.status === 503) return 'El asistente con IA todavía no está activo en esta app.';
+  if (res.status === 401) return 'Tu sesión venció. Cierra sesión y vuelve a entrar.';
+  if (res.status === 429) return e === 'limit' ? 'Llegaste al límite de ' + (data.limit || '') + ' mensajes de hoy. Vuelve mañana.' : 'El asistente está muy ocupado hoy. Intenta más tarde.';
+  if (res.status === 400 || res.status === 413) return 'No pude enviar ese mensaje: es muy largo o está vacío.';
+  return 'No se pudo responder ahora. Intenta de nuevo en un momento.';
+}
+async function chatSend(text) {
+  text = String(text || '').trim().slice(0, 1500);
+  const c = S.chat;
+  if (!text || c.busy || S.readonly || !S.loaded.aichat) return;
+  c.items.push({ role: 'user', text, at: Date.now() });
+  c.busy = true;
+  c.err = '';
+  delete S.drafts['chat-in'];
+  renderChat();
+  let res = null, data = null;
+  try {
+    const sess = await sb.auth.getSession();
+    const tok = sess && sess.data && sess.data.session ? sess.data.session.access_token || '' : '';
+    const messages = c.items.slice(-12).map(m => ({ role: m.role, content: String(m.text || '').slice(0, 3000) }));
+    res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: JSON.stringify({ messages, context: aiContext() }) });
+    try { data = await res.json(); } catch (e) { data = null; }
+  } catch (e) { res = null; }
+  c.busy = false;
+  if (res && res.ok && data && typeof data.text === 'string') {
+    c.items.push({ role: 'assistant', text: data.text.slice(0, 6000), prop: data.proposal && typeof data.proposal === 'object' ? data.proposal : null, habits: Array.isArray(data.habits) ? data.habits.slice(0, 6) : null, at: Date.now() });
+    if (typeof data.remaining === 'number') c.remaining = data.remaining;
+    if (c.items.length > MAX_CHAT) c.items = c.items.slice(-MAX_CHAT);
+    saveChat();
+  } else {
+    c.items.pop();
+    S.drafts['chat-in'] = text;
+    c.err = chatErrText(res, data);
+  }
+  renderChat();
+  if (!c.err) focusEl('chat-in');
+}
+function applyProposal(i) {
+  const it = S.chat.items[i];
+  if (!it || !it.prop || it.applied || S.readonly || !S.loaded.settings) return;
+  const chk = proposalCheck(it.prop), o = chk.out;
+  if (!Object.keys(o).length) return;
+  const nutri = Object.assign({}, S.settings.nutri);
+  for (const k of NK) if (o[k] != null) nutri[k] = o[k];
+  S.settings.nutri = nutri;
+  if (o.waterGoal != null) S.settings.waterGoal = o.waterGoal;
+  if (o.sleepGoal != null) S.settings.sleepGoal = o.sleepGoal;
+  if (o.stepGoal != null) S.settings.stepGoal = o.stepGoal;
+  saveSettings();
+  it.applied = true;
+  saveChat();
+  renderGuia();
+  toast('Metas aplicadas.' + (chk.skipped.length ? ' No cambié ' + chk.skipped.join(', ') + '.' : ''));
+}
+
+/* ---------- eventos de lo nuevo ---------- */
+function planClick(act, el, id) {
+  const st = S.sheet;
+  switch (act) {
+    case 'plan-open': openPlan(); return true;
+    case 'pl-set':
+      if (!st || st.kind !== 'plan') return true;
+      for (const f of ['birth', 'height', 'weight']) { const x = document.getElementById('pl-' + f); if (x) st.in[f] = x.value; }
+      st.in[el.dataset.f] = el.dataset.v;
+      st.err = '';
+      renderSheet();
+      return true;
+    case 'pl-tog': {
+      if (!st || st.kind !== 'plan') return true;
+      for (const f of ['birth', 'height', 'weight']) { const x = document.getElementById('pl-' + f); if (x) st.in[f] = x.value; }
+      const arr = st.in[el.dataset.f], v = el.dataset.v, j = arr.indexOf(v);
+      if (j >= 0) arr.splice(j, 1); else arr.push(v);
+      renderSheet();
+      return true;
+    }
+    case 'chat-quick': chatSend(el.dataset.q); return true;
+    case 'chat-clear': confirmOrDo('chat-clear', () => { S.chat.items = []; S.chat.err = ''; saveChat(); }, renderGuia); return true;
+    case 'ai-apply': applyProposal(Number(el.dataset.i)); return true;
+    case 'gd-del': {
+      const sec = el.dataset.sec;
+      if (!S.loaded.guide || !GUIDE_SECTIONS.some(x => x.k === sec)) return true;
+      confirmOrDo('gd:' + id, () => { S.guide = Object.assign({}, S.guide); S.guide[sec] = guideList(sec).filter(x => x.id !== id); saveGuide(); }, renderGuia);
+      return true;
+    }
+    case 'shop-suggest': suggestShop(); return true;
+    case 'hb-del': {
+      const k = el.dataset.k;
+      if (!S.loaded.habits) return true;
+      confirmOrDo('hb:' + k, () => { saveHabits(habitsList().filter(x => x.k !== k)); }, renderAjustes);
+      return true;
+    }
+    case 'hb-reset':
+      if (S.readonly || !S.loaded.habits) return true;
+      S.habits = null;
+      delDoc('config/habits');
+      renderAjustes();
+      return true;
+    default: return false;
+  }
+}
+function planInput(t) {
+  if (t.dataset.pl && S.sheet && S.sheet.kind === 'plan') { S.sheet.in[t.dataset.pl] = t.value; return true; }
+  return false;
+}
+function planSubmit(kind) {
+  const f = document.querySelector('[data-form="' + kind + '"]');
+  switch (kind) {
+    case 'sh-plan': submitPlanForm(); return true;
+    case 'sh-plansave': savePlan(); return true;
+    case 'chat': chatSend(f ? ($('#chat-in', f) || {}).value : ''); return true;
+    case 'guide': submitGuide(f); return true;
+    case 'habit': submitHabit(f); return true;
+    default: return false;
+  }
+}
+
+function cleanProfile(d) {
+  const o = {};
+  if (GOALS.some(g => g.k === d.goal)) o.goal = d.goal;
+  if (d.pace === 'suave' || d.pace === 'moderado') o.pace = d.pace;
+  if (ACTIVITY.some(a => a.k === d.activity)) o.activity = d.activity;
+  if (Array.isArray(d.diet)) o.diet = d.diet.filter(k => DIETS.some(x => x.k === k));
+  if (Array.isArray(d.cond)) o.cond = d.cond.filter(k => CONDITIONS.some(x => x.k === k));
+  if (d.onboarded) o.onboarded = true;
+  if (d.plan && typeof d.plan === 'object') o.plan = { at: /^\d{4}-\d{2}-\d{2}$/.test(String(d.plan.at || '')) ? d.plan.at : '', maint: Number(d.plan.maint) || null, kcal: Number(d.plan.kcal) || null };
+  return o;
+}
+
+/* =====================================================================
+   Ascend v4: hábitos con recurrencia, recordatorios, gimnasio y análisis con IA
+   ===================================================================== */
+S.reminders = []; S.loaded.reminders = false;
+S.routines = []; S.loaded.routines = false;
+S.rlists = null; S.loaded.rlists = false;
+S.loaded.aianalysis = false;
+S.ana = { period: 'week', hperiod: 'week', busy: '', err: {}, items: [] };
+S.hab = { tab: lsGet('ascend-htab') === 'rem' ? 'rem' : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
+IMPORT_COLS.push('reminders', 'routines');
+const MAX_REMS = 800, MAX_RLISTS = 30, MAX_ROUTINES = 30, MAX_ANA = 15;
+const isKey = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+const isHM = s => /^\d{2}:\d{2}$/.test(String(s || ''));
+const weekStart = k => addDays(k, -((parseKey(k).getDay() + 6) % 7));
+const monthStart = k => k.slice(0, 8) + '01';
+const monthEnd = k => { const d = parseKey(k); return keyOf(new Date(d.getFullYear(), d.getMonth() + 1, 0)); };
+const clampInt = (v, lo, hi, fb) => { const n = parseInt(v, 10); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fb; };
+const plural = (n, a, b) => n + ' ' + (n === 1 ? a : b);
+const dayWord = k => { const tk = todayKey(); return k === tk ? 'Hoy' : k === addDays(tk, 1) ? 'Mañana' : k === addDays(tk, -1) ? 'Ayer' : fmtDay(k); };
 async function authToken() {
   try { const s = await sb.auth.getSession(); return s && s.data && s.data.session ? s.data.session.access_token || '' : ''; } catch (e) { return ''; }
 }
@@ -115,181 +334,3 @@ function habBestStreak(h, k) {
   return Math.max(best, habStreak(h, k));
 }
 /* cumplimiento: días que tocaban y se hicieron (diarios) o veces logradas sobre las pedidas (flexibles) */
-function habRate(h, k) {
-  if (habFlex(h)) {
-    let got = 0, need = 0, a = habPeriod(h, k)[0];
-    const n = h.freq === 'weekly' ? 4 : 3;
-    for (let i = 0; i < n; i++) {
-      const b = habPeriod(h, a)[1], nd = habNeed(h, a, b);
-      if (!nd) { if (h.start && b < h.start) break; a = habPrevPeriod(h, a); continue; }
-      const c = habCount(h, a, b < k ? b : k);
-      if (i > 0 || c >= nd) { got += Math.min(c, nd); need += nd; }
-      a = habPrevPeriod(h, a);
-    }
-    return need ? Math.round(got / need * 100) : null;
-  }
-  let due = 0, done = 0;
-  const from = habFrom(h), s0 = habDone(h, k) ? 0 : 1;
-  for (let i = s0; i < s0 + 30; i++) {
-    const kk = addDays(k, -i);
-    if (from && kk < from) break;
-    if (habScheduled(h, kk)) { due++; if (habDone(h, kk)) done++; }
-  }
-  return due ? Math.round(done / due * 100) : null;
-}
-function habFreqText(h) {
-  if (h.freq === 'daily') return 'Todos los días';
-  if (h.freq === 'days') return h.days.length === 7 ? 'Todos los días' : WD_ORDER.filter(d => h.days.indexOf(d) >= 0).map(d => WD[d].slice(0, 3).toLowerCase()).join(', ');
-  return plural(h.times, 'vez', 'veces') + (h.freq === 'weekly' ? ' por semana' : ' al mes');
-}
-function habStreakText(h, n) {
-  if (!n) return '';
-  return 'racha ' + (h.freq === 'weekly' ? plural(n, 'semana', 'semanas') : h.freq === 'monthly' ? plural(n, 'mes', 'meses') : plural(n, 'día', 'días'));
-}
-function habProgText(h, k) {
-  if (!habFlex(h)) return '';
-  const a = habPeriod(h, k)[0];
-  return habCount(h, a, k) + ' de ' + h.times + (h.freq === 'weekly' ? ' esta semana' : ' este mes');
-}
-function habToggle(k, day) {
-  const h = habs().find(x => x.k === k);
-  if (!h || S.readonly || !isKey(day) || day > todayKey() || (h.end && day > h.end)) return false;
-  const marking = !habDone(h, day);
-  /* marcar un día anterior al inicio mueve el inicio hacia atrás, para que cuente en rachas y estadísticas */
-  if (marking && h.start && day < h.start) saveHabits(habitsList().map(x => (x.k === k ? Object.assign({}, x, { start: day }) : x)));
-  return mutDay(day, d => { d.boost = Object.assign({}, d.boost); if (d.boost[k]) delete d.boost[k]; else d.boost[k] = true; });
-}
-
-/* ---------- hábitos: Hoy y pestaña ---------- */
-function habRowHTML(h, tk) {
-  const done = habDone(h, tk), active = habActive(h, tk);
-  const st = habStreak(h, tk);
-  const ws = weekStart(tk);
-  const ended = h.end && h.end < tk, notYet = h.start && h.start > tk;
-  const sub = [ended ? 'terminó el ' + fmtShort(h.end) : notYet ? 'empieza el ' + fmtShort(h.start) : habFreqText(h), active ? habProgText(h, tk) : '', habStreakText(h, st)].filter(Boolean).join(' · ');
-  const strip = WD_ORDER.map((wd, i) => {
-    const k = addDays(ws, i), fut = k > tk, dn = habDone(h, k);
-    const s = dn ? 'done' : fut ? 'future' : habScheduled(h, k) ? 'due' : 'off';
-    return '<button type="button" class="hday' + (k === tk ? ' today' : '') + '" id="hd-' + esc(h.k) + '-' + k + '" data-act="hab-day" data-k="' + esc(h.k) + '" data-day="' + k + '" data-s="' + s + '" aria-pressed="' + dn + '" aria-label="' + esc(h.label + ', ' + fmtDay(k)) + '"' + (fut || (h.end && k > h.end) || S.readonly ? ' disabled' : '') + '>' + WD1[wd] + '</button>';
-  }).join('');
-  return '<div class="hab' + (done ? ' done' : '') + '">' +
-    '<button type="button" class="hchk" id="hc-' + esc(h.k) + '" data-act="hab-day" data-k="' + esc(h.k) + '" data-day="' + tk + '" aria-pressed="' + done + '" aria-label="' + esc((done ? 'Desmarcar ' : 'Marcar ') + h.label) + '"' + (!active || S.readonly ? ' disabled' : '') + '></button>' +
-    '<button type="button" class="hab-main" id="ho-' + esc(h.k) + '" data-act="hab-open" data-k="' + esc(h.k) + '"><span class="hab-n">' + esc(h.label) + '</span><span class="hab-s">' + esc(sub) + '</span></button>' +
-    '<div class="hstrip" role="group" aria-label="' + esc('Esta semana: ' + h.label) + '">' + strip + '</div></div>';
-}
-function habSectionHTML() {
-  const tk = todayKey(), list = habs();
-  const dis = S.readonly || !S.loaded.habits ? ' disabled' : '';
-  const today = list.filter(h => habDueOn(h, tk) || habDone(h, tk));
-  const other = list.filter(h => today.indexOf(h) < 0);
-  const done = today.filter(h => habDone(h, tk)).length;
-  const own = !!(S.habits && Array.isArray(S.habits.items));
-  let html = '<section class="card" id="card-habs"><div class="card-h"><h2>Hábitos de hoy</h2><span class="meta">' + (today.length ? done + ' de ' + today.length : fmtDay(tk)) + '</span></div>';
-  if (today.length) html += '<span class="m-bar hab-bar"><i style="width:' + Math.round(done / today.length * 100) + '%"></i></span>';
-  if (!S.loaded.habits) html += '<p class="empty">Cargando…</p>';
-  else if (today.length) html += '<div class="habs">' + today.map(h => habRowHTML(h, tk)).join('') + '</div>';
-  else html += '<p class="empty">' + (list.length ? 'Hoy no te toca ningún hábito.' : 'Aún no tienes hábitos. Empieza con uno pequeño que puedas cumplir casi todos los días.') + '</p>';
-  if (other.length) html += '<p class="sh-sec">Otros días</p><div class="habs">' + other.map(h => habRowHTML(h, tk)).join('') + '</div>';
-  html += '<div class="row hab-acts"><button type="button" class="btn" id="hab-new" data-act="hab-new"' + dis + '>Nuevo hábito</button>' +
-    '<button type="button" class="btn quiet" id="hab-coach-go" data-act="hab-coach">Ideas con IA</button></div>' +
-    (!own && list.length ? '<p class="hint">Estos hábitos salen de tu objetivo. Toca uno para cambiarlo o borrarlo.</p>' : '<p class="hint">Toca un hábito para ver su calendario, su racha y editarlo. Los días de la semana se pueden marcar o desmarcar.</p>') +
-    '</section>';
-  return html + coachCardHTML() + anaCardHTML('hab');
-}
-
-/* hoja: detalle del hábito con calendario del mes */
-function shHabDetailHTML(st) {
-  const h = habs().find(x => x.k === st.k);
-  if (!h) return sheetTop('Hábito') + '<p class="empty">Este hábito ya no existe.</p>';
-  const tk = todayKey(), m = st.month || monthStart(tk);
-  const first = parseKey(m), dim = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
-  const lead = (first.getDay() + 6) % 7;
-  let cells = '';
-  for (let i = 0; i < lead; i++) cells += '<span></span>';
-  for (let d = 1; d <= dim; d++) {
-    const k = m.slice(0, 8) + pad2(d), fut = k > tk, dn = habDone(h, k);
-    const s = dn ? 'done' : fut ? 'future' : habScheduled(h, k) ? 'due' : 'off';
-    cells += '<button type="button" class="hcd' + (k === tk ? ' today' : '') + '" id="hcd-' + k + '" data-act="hab-day" data-k="' + esc(h.k) + '" data-day="' + k + '" data-s="' + s + '" aria-pressed="' + dn + '" aria-label="' + esc(fmtDay(k)) + '"' + (fut || (h.end && k > h.end) || S.readonly ? ' disabled' : '') + '>' + d + '</button>';
-  }
-  const st1 = habStreak(h, tk), best = habBestStreak(h, tk), rate = habRate(h, tk);
-  let total = 0; for (const k of Object.keys(S.days)) if (habDone(h, k)) total++;
-  const mo = MO[first.getMonth()] + ' ' + first.getFullYear();
-  const stat = (lbl, v) => '<div class="meter"><span class="m-lbl">' + lbl + '</span><span class="m-val">' + v + '</span></div>';
-  return sheetTop(h.label) +
-    '<p class="plan-sub">' + esc(habFreqText(h)) + (h.start ? ' · desde el ' + fmtShort(h.start) : '') + (h.end ? ' · hasta el ' + fmtShort(h.end) : '') + (h.remind ? ' · aviso ' + fmtHM(h.remind) : '') + '</p>' +
-    (h.note ? '<p class="prose">' + esc(h.note) + '</p>' : '') +
-    '<div class="meters">' + stat('Racha', st1 ? esc(habStreakText(h, st1).replace('racha ', '')) : '0') + (best != null ? stat('Mejor racha', plural(best, 'día', 'días')) : '') + stat(habFlex(h) ? 'Cumplido (periodos recientes)' : 'Cumplido (30 días)', rate == null ? '—' : rate + ' %') + stat('Veces en total', fmtInt(total)) + '</div>' +
-    '<div class="hcal-h"><button type="button" class="navbtn sm" id="hd-prev" data-act="hd-month" data-d="-1" aria-label="Mes anterior">' + ICON.left + '</button><span>' + esc(mo) + '</span>' +
-    '<button type="button" class="navbtn sm" id="hd-next" data-act="hd-month" data-d="1" aria-label="Mes siguiente"' + (m >= monthStart(tk) ? ' disabled' : '') + '>' + ICON.right + '</button></div>' +
-    '<div class="hcal">' + WD_ORDER.map(d => '<span class="hcal-w">' + WD1[d] + '</span>').join('') + cells + '</div>' +
-    '<p class="hint">Toca un día para marcarlo o desmarcarlo.</p>' +
-    '<div class="row"><button type="button" class="btn" id="hd-edit" data-act="hab-edit" data-k="' + esc(h.k) + '"' + (S.readonly ? ' disabled' : '') + '>Editar hábito</button></div>';
-}
-
-/* hoja: crear o editar un hábito */
-function openHabitEdit(k) {
-  if (S.readonly || !S.loaded.habits) return;
-  const h = k ? habs().find(x => x.k === k) : null;
-  const tk = todayKey();
-  const f = h ? { label: h.label, freq: h.freq, days: h.days.slice(), times: String(h.times), start: h.start || '', endMode: h.end ? 'date' : 'none', end: h.end || '', remind: h.remind, note: h.note }
-    : { label: '', freq: 'daily', days: [1, 2, 3, 4, 5], times: '3', start: tk, endMode: 'none', end: '', remind: '', note: '' };
-  const st = { kind: 'habit', step: 'edit', k: k || null, f, err: '' };
-  if (S.sheet) { S.sheet = st; renderSheet(); const c = $('#sheet-card'); if (c) c.scrollTop = 0; } else openSheet(st);
-  if (!k) focusEl('hf-label');
-}
-function shHabitHTML(st) {
-  const f = st.f, armed = S.confirmDel === 'hdel:' + st.k;
-  const tg = (act, v, on, label, extra, cls) => '<button type="button" class="tgl' + (cls ? ' ' + cls : '') + '" id="' + act + '-' + v + '" data-act="' + act + '" data-v="' + v + '" aria-pressed="' + !!on + '"' + (extra || '') + '>' + label + '</button>';
-  const durs = [[21, '21 días'], [30, '30 días'], [66, '66 días'], [90, '90 días']];
-  return sheetTop(st.k ? 'Editar hábito' : 'Nuevo hábito') +
-    '<form class="sh-form" data-form="sh-habit" novalidate>' +
-      '<div class="field"><label class="lbl" for="hf-label">Hábito</label><input type="text" id="hf-label" data-hf="label" maxlength="60" autocomplete="off" placeholder="Leer 10 minutos" value="' + esc(f.label) + '"></div>' +
-      '<div class="field"><span class="lbl">Frecuencia</span><div class="toggles">' + HFREQ.map(x => tg('hf-freq', x.k, f.freq === x.k, x.label)).join('') + '</div></div>' +
-      (f.freq === 'days' ? '<div class="field"><span class="lbl">Qué días</span><div class="toggles days">' + WD_ORDER.map(n => tg('hf-day', n, f.days.indexOf(n) >= 0, WD1[n], ' aria-label="' + WD[n] + '"')).join('') + '</div></div>' : '') +
-      (f.freq === 'weekly' ? '<div class="field"><span class="lbl">Cuántas veces por semana</span><div class="toggles">' + [1, 2, 3, 4, 5, 6, 7].map(n => tg('hf-times', n, String(n) === String(f.times), String(n))).join('') + '</div></div>' : '') +
-      (f.freq === 'monthly' ? '<div class="field"><label class="lbl" for="hf-times">Cuántas veces al mes</label><div class="amt-row"><input type="text" inputmode="numeric" id="hf-times" data-hf="times" autocomplete="off" value="' + esc(f.times) + '">' +
-        [1, 2, 4, 8, 12].map(n => tg('hf-times', n, String(n) === String(f.times), String(n), '', 'q')).join('') + '</div></div>' : '') +
-      '<div class="grid2"><div class="field"><label class="lbl" for="hf-start">Empieza</label><input type="date" id="hf-start" data-hf="start" value="' + esc(f.start) + '"></div>' +
-      '<div class="field"><label class="lbl" for="hf-remind">Aviso (opcional)</label><input type="time" id="hf-remind" data-hf="remind" value="' + esc(f.remind) + '"></div></div>' +
-      '<div class="field"><span class="lbl">Durante cuánto tiempo</span><div class="toggles">' + tg('hf-end', 'none', f.endMode === 'none', 'Sin fin') + tg('hf-end', 'date', f.endMode === 'date', 'Hasta una fecha') + '</div></div>' +
-      (f.endMode === 'date' ? '<div class="field"><label class="lbl" for="hf-endd">Termina el</label><input type="date" id="hf-endd" data-hf="end" value="' + esc(f.end) + '"></div>' +
-        '<div class="toggles">' + durs.map(x => tg('hf-dur', x[0], false, x[1])).join('') + '</div>' : '') +
-      '<div class="field"><label class="lbl" for="hf-note">Nota (opcional)</label><input type="text" id="hf-note" data-hf="note" maxlength="200" autocomplete="off" value="' + esc(f.note) + '"></div>' +
-      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="hf-save">' + (st.k ? 'Guardar cambios' : 'Crear hábito') + '</button>' +
-      (st.k ? '<button type="button" class="btn sm ' + (armed ? 'danger' : 'quiet') + '" id="hf-del" data-act="hab-del" data-k="' + esc(st.k) + '">' + (armed ? 'Toca otra vez para borrarlo' : 'Borrar hábito') + '</button>' : '') +
-    '</form>' +
-    '<p class="hint">Lo que ya marcaste se conserva aunque cambies la frecuencia. Los avisos salen mientras Ascend está abierta.</p>';
-}
-function habFormSync() {
-  const st = S.sheet;
-  if (!st || st.kind !== 'habit') return;
-  for (const [id, f] of [['hf-label', 'label'], ['hf-start', 'start'], ['hf-remind', 'remind'], ['hf-endd', 'end'], ['hf-note', 'note'], ['hf-times', 'times']]) { const el = document.getElementById(id); if (el) st.f[f] = el.value; }
-}
-function habSave() {
-  const st = S.sheet;
-  if (!st || st.kind !== 'habit' || S.readonly) return;
-  habFormSync();
-  const f = st.f, label = String(f.label || '').trim().slice(0, 60);
-  const list = habitsList().map(x => Object.assign({}, x));
-  const tk = todayKey();
-  let err = '';
-  const times = f.freq === 'monthly' ? parseInt(f.times, 10) : f.freq === 'weekly' ? parseInt(f.times, 10) : 0;
-  if (!label) err = 'Escribe el hábito.';
-  else if (list.some(x => x.k !== st.k && norm(x.label) === norm(label))) err = 'Ya tienes un hábito con ese nombre.';
-  else if (!st.k && list.length >= MAX_HABITS) err = 'Puedes tener hasta ' + MAX_HABITS + ' hábitos.';
-  else if (f.freq === 'days' && !f.days.length) err = 'Elige al menos un día.';
-  else if (f.freq === 'weekly' && !(times >= 1 && times <= 7)) err = 'Elige de 1 a 7 veces por semana.';
-  else if (f.freq === 'monthly' && !(times >= 1 && times <= 31)) err = 'Escribe de 1 a 31 veces al mes.';
-  else if (f.start && !isKey(f.start)) err = 'Revisa la fecha de inicio.';
-  else if (f.endMode === 'date' && !isKey(f.end)) err = 'Elige la fecha en que termina.';
-  else if (f.endMode === 'date' && f.end < (f.start || tk)) err = 'La fecha final debe ser después del inicio.';
-  if (err) { sheetErr(st, err); return; }
-  const h = { k: st.k || 'h-' + uid(), label, freq: f.freq, days: f.freq === 'days' ? WD_ORDER.filter(d => f.days.indexOf(d) >= 0) : [], times: times || 0, start: f.start || '', end: f.endMode === 'date' ? f.end : '', remind: isHM(f.remind) ? f.remind : '', note: String(f.note || '').trim().slice(0, 200) };
-  const i = list.findIndex(x => x.k === h.k);
-  if (i >= 0) { h.createdAt = list[i].createdAt; list[i] = h; } else { h.createdAt = Date.now(); list.push(h); }
-  saveHabits(list);
-  closeSheet();
-  renderActive();
-  toast(i >= 0 ? 'Hábito actualizado.' : 'Hábito creado: ' + label + '.');
-}

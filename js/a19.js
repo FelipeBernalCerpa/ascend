@@ -1,4 +1,189 @@
 'use strict';
+function remFormSync() {
+  const st = S.sheet;
+  if (!st || st.kind !== 'rem') return;
+  for (const [id, f] of [['rf-t', 't'], ['rf-n', 'n'], ['rf-l', 'l'], ['rf-due', 'due'], ['rf-time', 'time'], ['rf-ri', 'ri'], ['rf-endd', 'endD'], ['rf-endn', 'endN']]) { const el = document.getElementById(id); if (el) st.f[f] = el.value; }
+}
+function remSave() {
+  const st = S.sheet;
+  if (!st || st.kind !== 'rem' || S.readonly) return;
+  remFormSync();
+  const f = st.f, prev = st.id ? S.reminders.find(x => x.id === st.id) : null;
+  const t = String(f.t || '').trim().slice(0, 120);
+  let due = isKey(f.due) ? f.due : '';
+  let err = '';
+  if (!t) err = 'Escribe el recordatorio.';
+  else if (f.due && !due) err = 'Revisa la fecha.';
+  else if (!st.id && S.reminders.length >= MAX_REMS) err = 'Llegaste al máximo de recordatorios. Borra los completados.';
+  if (!err && (f.rf || isHM(f.time)) && !due) due = todayKey();
+  let rep = null;
+  if (!err && f.rf) {
+    const i = parseInt(f.ri, 10);
+    if (f.rf !== 'wd' && !(i >= 1 && i <= 99)) err = 'El intervalo va de 1 a 99.';
+    const end = f.endT === 'date' ? { t: 'date', d: f.endD } : f.endT === 'count' ? { t: 'count', n: parseInt(f.endN, 10) } : { t: 'never' };
+    const days = f.rf === 'w' ? WD_ORDER.filter(d => f.rdays.indexOf(d) >= 0) : [];
+    /* la fecha pasa al primer día que de verdad toca, antes de revisar el último día */
+    if (!err && f.rf === 'w' && days.length && days.indexOf(parseKey(due).getDay()) < 0) { let k = due; for (let j = 0; j < 7 && days.indexOf(parseKey(k).getDay()) < 0; j++) k = addDays(k, 1); due = k; }
+    if (!err && f.rf === 'wd') while ([0, 6].indexOf(parseKey(due).getDay()) >= 0) due = addDays(due, 1);
+    if (!err && end.t === 'date' && (!isKey(end.d) || end.d < due)) err = 'El último día debe ser después de la fecha del recordatorio.';
+    if (!err && end.t === 'count' && !(end.n >= 2 && end.n <= 999)) err = 'Escribe de 2 a 999 veces.';
+    if (!err) {
+      const same = prev && prev.rep && prev.rep.f === f.rf;
+      rep = { f: f.rf, i: f.rf === 'wd' ? 1 : i, days, end, count: same ? (prev.rep.count || 0) : 0 };
+      /* mensual o anual el 31 (o el 29 de febrero): si solo se edita el texto, conserva el día original */
+      if (f.rf === 'm' || f.rf === 'y') rep.anchor = same && prev.due === due && prev.rep.anchor ? clampInt(prev.rep.anchor, 1, 31, parseKey(due).getDate()) : parseKey(due).getDate();
+    }
+  }
+  if (err) { sheetErr(st, err); return; }
+  const lid = rlists().some(l => l.id === f.l) ? f.l : 'inbox';
+  const data = { t, n: String(f.n || '').trim().slice(0, 500), l: lid, due: due || null, time: due && isHM(f.time) ? f.time : null, rep, flag: !!f.flag, pri: clampInt(f.pri, 0, 3, 0), done: prev ? !!prev.done : false, createdAt: prev ? prev.createdAt : Date.now() };
+  if (prev && prev.doneAt) data.doneAt = prev.doneAt;
+  const id = st.id || uid();
+  const i = S.reminders.findIndex(x => x.id === id);
+  if (i >= 0) S.reminders[i] = Object.assign({ id }, data); else S.reminders.push(Object.assign({ id }, data));
+  putDoc('reminders/' + id, data);
+  closeSheet();
+  remRerender();
+  toast(st.id ? 'Recordatorio actualizado.' : 'Recordatorio creado' + (data.due ? ' para ' + dayWord(data.due).toLowerCase() : '') + '.');
+}
+function remDelete() {
+  const st = S.sheet;
+  if (!st || !st.id) return;
+  confirmOrDo('rdel:' + st.id, () => { const id = st.id; S.reminders = S.reminders.filter(r => r.id !== id); delDoc('reminders/' + id); closeSheet(); remRerender(); toast('Recordatorio borrado.'); },
+    () => { if (S.sheet && S.sheet.kind === 'rem') { remFormSync(); renderSheet(); } });
+}
+function rlistSave(editing) {
+  if (S.readonly || !S.loaded.rlists) return;
+  const name = String((($('#rl-name') || {}).value) || '').trim().slice(0, 40);
+  const items = rlists().slice(1).map(x => Object.assign({}, x));
+  S.formErr.rl = !name ? 'Escribe el nombre.' : items.some(x => norm(x.name) === norm(name) && (!editing || x.id !== S.hab.rview)) || norm(name) === norm('Recordatorios') ? 'Ya tienes una lista con ese nombre.' : (!editing && items.length >= MAX_RLISTS) ? 'Puedes tener hasta ' + MAX_RLISTS + ' listas.' : '';
+  if (S.formErr.rl) { renderHabitos(); return; }
+  const pick = RCOLORS.indexOf(S.hab.listColor) >= 0 ? S.hab.listColor : null, color = pick || RCOLORS[1];
+  if (editing) { const l = items.find(x => x.id === S.hab.rview); if (l) { l.name = name; l.color = pick || l.color; } }
+  else items.push({ id: 'l' + uid(), name, color });
+  S.rlists = { items };
+  saver.queue('config/rlists', clone(S.rlists), 100);
+  delete S.drafts['rl-name'];
+  S.hab.newList = false; S.hab.editList = false; S.hab.listColor = null;
+  renderHabitos();
+}
+function rlistDelete() {
+  const id = S.hab.rview;
+  if (id === 'inbox' || !S.loaded.rlists || S.readonly) return;
+  confirmOrDo('rl-del', () => {
+    S.rlists = { items: rlists().slice(1).filter(x => x.id !== id) };
+    saver.queue('config/rlists', clone(S.rlists), 100);
+    for (const r of S.reminders) if (r.l === id) { r.l = 'inbox'; putDoc('reminders/' + r.id, strip(r)); }
+    S.hab.rview = 'home';
+    toast('Lista borrada. Sus recordatorios están en «Recordatorios».');
+  }, renderHabitos);
+}
+
+/* avisos dentro de la app */
+let v4Tick = 0;
+function v4Notify() {
+  if (!S.dataReady) return;
+  const tk = todayKey(), now = new Date(), nm = now.getHours() * 60 + now.getMinutes();
+  let seen = {};
+  try { seen = JSON.parse(lsGet('ascend-avisos') || '{}') || {}; } catch (e) { seen = {}; }
+  const out = [];
+  const near = hm => { const m = hm2min(hm); return m <= nm && nm - m < 180; };
+  for (const r of S.reminders) if (!r.done && r.due === tk && isHM(r.time) && near(r.time)) { const key = 'r:' + r.id + ':' + r.due + ':' + r.time; if (!seen[key]) { seen[key] = tk; out.push(['Recordatorio', r.t]); } }
+  for (const h of habs()) if (h.remind && habDueOn(h, tk) && !habDone(h, tk) && near(h.remind)) { const key = 'h:' + h.k + ':' + tk; if (!seen[key]) { seen[key] = tk; out.push(['Hábito', h.label]); } }
+  if (!out.length) return;
+  for (const k of Object.keys(seen)) if (seen[k] < addDays(tk, -3)) delete seen[k];
+  lsSet('ascend-avisos', JSON.stringify(seen));
+  toast(out.map(x => x[0] + ': ' + x[1]).join(' · '));
+  try { if (typeof Notification !== 'undefined' && Notification.permission === 'granted') for (const x of out) new Notification(x[0], { body: x[1] }); } catch (e) {}
+}
+
+/* ---------- pestaña Hábitos ---------- */
+function renderHabitos() {
+  const root = $('#view-habitos');
+  if (!root) return;
+  const t = S.hab.tab;
+  const seg = '<div class="segc" role="tablist" aria-label="Hábitos o recordatorios">' +
+    '<button type="button" role="tab" id="ht-hab" data-act="htab" data-v="hab" aria-selected="' + (t === 'hab') + '">Hábitos</button>' +
+    '<button type="button" role="tab" id="ht-rem" data-act="htab" data-v="rem" aria-selected="' + (t === 'rem') + '">Recordatorios</button></div>';
+  swap(root, seg + (t === 'hab' ? habSectionHTML() : remSectionHTML()));
+}
+
+/* ---------- gimnasio ---------- */
+function lastGym() {
+  const tk = todayKey();
+  let best = null;
+  for (let i = 0; i < 90; i++) {
+    const d = S.days[addDays(tk, -i)];
+    if (!d || !Array.isArray(d.acts)) continue;
+    for (const a of d.acts) if (a && a.k === 'gym' && (!best || (a.at || 0) > (best.at || 0))) best = a;
+    if (best) return best;
+  }
+  return null;
+}
+function gymVolume(a) {
+  let sets = 0, kg = 0;
+  for (const x of a.ex || []) for (const s of x.sets || []) { sets++; kg += (Number(s.r) || 0) * (Number(s.kg) || 0); }
+  return { sets, kg: Math.round(kg) };
+}
+function setsText(sets) {
+  const ok = (sets || []).filter(s => s && (Number(s.r) > 0 || Number(s.kg) > 0));
+  if (!ok.length) return 'sin series';
+  const same = ok.every(s => String(s.r) === String(ok[0].r) && String(s.kg || '') === String(ok[0].kg || ''));
+  const one = s => (Number(s.r) || 0) + (Number(s.kg) > 0 ? ' × ' + numText(Number(s.kg)) + ' kg' : ' rep.');
+  if (same) return ok.length + ' × ' + one(ok[0]);
+  return ok.map(s => (Number(s.r) || 0) + (Number(s.kg) > 0 ? '×' + numText(Number(s.kg)) : '')).join(', ') + (ok.some(s => Number(s.kg) > 0) ? ' kg' : ' rep.');
+}
+function gymCopyEx(ex) { return (ex || []).map(x => ({ n: String(x.n || ''), sets: (x.sets || []).map(s => ({ r: s.r == null ? '' : String(s.r), kg: s.kg == null ? '' : String(s.kg) })) })); }
+function openGym(id) {
+  if (S.readonly || !S.daysLoaded) return;
+  let st;
+  if (id) {
+    const a = (getDay(S.viewKey).acts || []).find(x => x.id === id);
+    if (!a) return;
+    st = { kind: 'gym', step: 'gym', editId: id, name: a.title || String(a.name || '').replace(/^Gimnasio:?\s*/, ''), min: String(a.min || 60), lv: GYM_LEVELS.some(l => l.k === a.lv) ? a.lv : 'moderada', ex: gymCopyEx(a.ex), err: '', saveRt: false, q: '' };
+  } else st = { kind: 'gym', step: 'gym', editId: null, name: '', min: '60', lv: 'moderada', ex: [], err: '', saveRt: false, q: '' };
+  if (S.sheet) { stopScan(); S.sheet = st; renderSheet(); const c = $('#sheet-card'); if (c) c.scrollTop = 0; } else openSheet(st);
+}
+function gymEstimate(st) {
+  const perH = exPerH(), min = parseInt(st.min, 10), lv = GYM_LEVELS.find(l => l.k === st.lv) || GYM_LEVELS[1];
+  const vol = gymVolume({ ex: st.ex.map(x => ({ sets: x.sets.map(s => ({ r: parseNum(s.r), kg: parseNum(s.kg) })) })) });
+  const parts = [];
+  if (perH && min > 0) parts.push('≈ ' + fmtInt(r10((lv.met - 1) * perH * min / 60)) + ' kcal además de tu gasto en reposo');
+  else if (!perH) parts.push('Registra tu peso en Progreso para estimar las calorías');
+  if (st.ex.length) parts.push(plural(st.ex.length, 'ejercicio', 'ejercicios'), plural(vol.sets, 'serie', 'series'));
+  if (vol.kg) parts.push(fmtInt(vol.kg) + ' kg levantados');
+  return parts.join(' · ');
+}
+function shGymHTML(st) {
+  if (st.step === 'pick') return shGymPickHTML(st);
+  const last = st.editId ? null : lastGym();
+  const rts = S.routines.slice().sort(byCreated);
+  const start = !st.editId && (last || rts.length) ? '<p class="sh-sec">Empezar desde</p><div class="toggles gym-rts">' +
+      (last ? '<button type="button" class="tgl" id="gym-last" data-act="gym-last">Repetir el último<small>' + esc(last.title || last.name || 'Gimnasio') + '</small></button>' : '') +
+      rts.map(r => '<span class="gym-rt"><button type="button" class="tgl" id="gym-rt-' + esc(r.id) + '" data-act="gym-rt" data-id="' + esc(r.id) + '">' + esc(r.name) + '<small>' + plural((r.ex || []).length, 'ejercicio', 'ejercicios') + '</small></button>' +
+        (st.rtManage ? '<button type="button" class="xbtn' + (S.confirmDel === 'rt:' + r.id ? ' armed' : '') + '" id="gym-rtx-' + esc(r.id) + '" data-act="gym-rtdel" data-id="' + esc(r.id) + '">' + (S.confirmDel === 'rt:' + r.id ? '¿Borrar?' : 'Borrar') + '</button>' : '') + '</span>').join('') + '</div>' +
+      (rts.length ? '<button type="button" class="link" id="gym-rtm" data-act="gym-rtmanage">' + (st.rtManage ? 'Listo' : 'Administrar rutinas') + '</button>' : '') : '';
+  const exHTML = st.ex.map((x, i) => '<div class="gx"><div class="gx-h"><span class="gx-n">' + esc(x.n) + '</span><button type="button" class="xbtn" id="gx-del-' + i + '" data-act="gym-xdel" data-i="' + i + '">Quitar</button></div>' +
+      '<div class="gsets">' + x.sets.map((s, j) => '<div class="gset"><span class="gset-n">' + (j + 1) + '</span>' +
+        '<label class="lbl sr" for="gs-' + i + '-' + j + '-r">Repeticiones de la serie ' + (j + 1) + '</label><input type="text" inputmode="numeric" id="gs-' + i + '-' + j + '-r" data-gs="' + i + ':' + j + ':r" autocomplete="off" placeholder="reps" value="' + esc(s.r) + '">' +
+        '<span class="gset-x">×</span><label class="lbl sr" for="gs-' + i + '-' + j + '-kg">Kilos de la serie ' + (j + 1) + '</label><input type="text" inputmode="decimal" id="gs-' + i + '-' + j + '-kg" data-gs="' + i + ':' + j + ':kg" autocomplete="off" placeholder="kg" value="' + esc(s.kg) + '"><span class="gset-u">kg</span>' +
+        (x.sets.length > 1 ? '<button type="button" class="gset-del" id="gs-del-' + i + '-' + j + '" data-act="gym-sdel" data-i="' + i + '" data-j="' + j + '" aria-label="Quitar serie ' + (j + 1) + '">×</button>' : '<span></span>') + '</div>').join('') + '</div>' +
+      '<button type="button" class="btn sm quiet" id="gs-add-' + i + '" data-act="gym-sadd" data-i="' + i + '">+ Serie</button></div>').join('');
+  return sheetTop(st.editId ? 'Editar entrenamiento' : 'Entrenamiento de gimnasio') +
+    start +
+    '<form class="sh-form" data-form="sh-gym" novalidate>' +
+      '<div class="field"><label class="lbl" for="gy-name">Nombre (opcional)</label><input type="text" id="gy-name" data-gy="name" maxlength="50" autocomplete="off" placeholder="Pierna, pecho y tríceps, full body…" value="' + esc(st.name) + '"></div>' +
+      '<div class="field"><label class="lbl" for="gy-min">Duración (minutos)</label><div class="amt-row"><input type="text" inputmode="numeric" id="gy-min" data-gy="min" autocomplete="off" value="' + esc(st.min) + '">' +
+        [30, 45, 60, 90].map(v => '<button type="button" class="tgl q" id="gy-m-' + v + '" data-act="gym-min" data-v="' + v + '" aria-pressed="' + (String(v) === String(st.min)) + '">' + v + '</button>').join('') + '</div></div>' +
+      '<div class="field"><span class="lbl">Intensidad</span><div class="toggles lv3">' + GYM_LEVELS.map(l => '<button type="button" class="tgl" id="gy-lv-' + l.k + '" data-act="gym-lv" data-v="' + l.k + '" aria-pressed="' + (st.lv === l.k) + '">' + l.label + '<small>' + l.sub + '</small></button>').join('') + '</div></div>' +
+      '<p class="sh-sec">Ejercicios</p>' + (st.ex.length ? exHTML : '<p class="hint">Agrega los ejercicios que hiciste con sus series, repeticiones y kilos. Si no quieres el detalle, guarda solo los minutos.</p>') +
+      '<button type="button" class="btn quiet" id="gym-addx" data-act="gym-addx">Agregar ejercicio</button>' +
+      '<p class="hint" id="gym-est">' + esc(gymEstimate(st)) + '</p>' +
+      (!st.editId ? '<button type="button" class="switch" id="gym-rtsave" data-act="gym-rtsave" aria-pressed="' + !!st.saveRt + '"><span class="sw"></span>Guardar también como rutina</button>' : '') +
+      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
+      '<button type="submit" class="btn" id="gym-save"' + (S.readonly ? ' disabled' : '') + '>' + (st.editId ? 'Guardar cambios' : 'Guardar entrenamiento') + '</button>' +
+    '</form>';
+}
 function shGymPickHTML(st) {
   const q = norm(st.q || ''), qt = q ? q.split(' ') : [];
   const btn = n => '<button type="button" class="fres" data-act="gym-pick" data-n="' + esc(n) + '"><span class="fres-n">' + esc(n) + '</span></button>';
@@ -179,83 +364,4 @@ function anaContext(period, kind) {
   const overR = S.reminders.filter(r => !r.done && r.due && r.due < tk).length;
   if (doneR || overR) L.push('Recordatorios: ' + doneR + ' completados en el periodo; ' + overR + ' vencidos sin hacer.');
   return L.join('\n').slice(0, 14000);
-}
-function anaPrompt(kind, period) {
-  if (kind === 'hab') return 'Analiza mis hábitos de ' + anaP(period).msg + ': qué cumplí, qué me está costando y qué ajustar para cumplirlos. Si conviene, propón hábitos nuevos o más fáciles.';
-  if (hasCond('tca')) return 'Revisa ' + anaP(period).msg + ': si hice mis comidas con regularidad, agua, sueño, ánimo, ejercicio, hábitos y medicamentos. Sin hablar de calorías, peso, porciones ni cantidades. Dime qué salió bien y una cosa pequeña para mejorar.';
-  return 'Analiza ' + anaP(period).msg + ': calorías que comí y quemé frente a mi meta, proteína y nutrientes, agua, sueño, ejercicio y hábitos. Dime si cumplí mis metas y cómo mejorar en mi caso.';
-}
-function saveAna() { if (S.loaded.aianalysis) saver.queue('config/aianalysis', { items: clone(S.ana.items.slice(0, MAX_ANA)) }, 200); }
-async function anaRun(kind, msg) {
-  if (S.ana.busy || S.readonly || !S.loaded.aianalysis) return;
-  const period = kind === 'hab' ? S.ana.hperiod : kind === 'gen' ? S.ana.period : null;
-  const text = kind === 'coach' ? String(msg || '').trim().slice(0, 1000) : anaPrompt(kind, period);
-  if (!text) { S.ana.err.coach = 'Escribe qué quieres lograr.'; renderActive(); return; }
-  S.ana.busy = kind;
-  S.ana.err[kind] = '';
-  renderActive();
-  let res = null, data = null;
-  try {
-    const tok = await authToken();
-    const context = anaContext(kind === 'coach' ? 'week' : period, kind === 'gen' ? 'gen' : 'hab');
-    res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: JSON.stringify({ mode: kind === 'gen' ? 'analysis' : 'habits', messages: [{ role: 'user', content: text }], context }) });
-    try { data = await res.json(); } catch (e) { data = null; }
-  } catch (e) { res = null; }
-  S.ana.busy = '';
-  if (res && res.ok && data && typeof data.text === 'string') {
-    const item = { id: uid(), kind, period, at: Date.now(), q: kind === 'coach' ? text : '', text: data.text.slice(0, 8000), prop: data.proposal && typeof data.proposal === 'object' ? data.proposal : null, habits: Array.isArray(data.habits) ? data.habits.slice(0, 6) : null };
-    S.ana.items = [item].concat(S.ana.items).slice(0, MAX_ANA);
-    if (typeof data.remaining === 'number') S.chat.remaining = data.remaining;
-    if (kind === 'coach') delete S.drafts['coach-in'];
-    saveAna();
-  } else S.ana.err[kind] = chatErrText(res, data);
-  renderActive();
-}
-function anaApply(id) {
-  const it = S.ana.items.find(x => x.id === id);
-  if (!it || !it.prop || it.applied || S.readonly || !S.loaded.settings) return;
-  const chk = proposalCheck(it.prop), o = chk.out;
-  if (!Object.keys(o).length) return;
-  const nutri = Object.assign({}, S.settings.nutri);
-  for (const k of NK) if (o[k] != null) nutri[k] = o[k];
-  S.settings.nutri = nutri;
-  if (o.waterGoal != null) S.settings.waterGoal = o.waterGoal;
-  if (o.sleepGoal != null) S.settings.sleepGoal = o.sleepGoal;
-  if (o.stepGoal != null) S.settings.stepGoal = o.stepGoal;
-  saveSettings();
-  it.applied = true;
-  saveAna();
-  renderActive();
-  toast('Metas aplicadas.' + (chk.skipped.length ? ' No cambié ' + chk.skipped.join(', ') + '.' : ''));
-}
-function anaPropHTML(it) {
-  const chk = proposalCheck(it.prop), keys = Object.keys(chk.out);
-  const note = chk.skipped.length ? '<p class="hint">No se aplica en tu caso: ' + esc(chk.skipped.join(', ')) + '.</p>' : '';
-  if (!keys.length) return note ? '<div class="prop">' + note + '</div>' : '';
-  const rows = keys.map(k => '<span class="pv"><span>' + PROP_LABELS[k][0] + '</span><b>' + (k === 'sleepGoal' ? fmtNum(chk.out[k], 1) : fmtInt(chk.out[k])) + (PROP_LABELS[k][1] ? ' ' + PROP_LABELS[k][1] : '') + '</b></span>').join('');
-  return '<div class="prop"><p class="sh-sec">Metas propuestas</p><div class="prev-g">' + rows + '</div>' + note +
-    (it.applied ? '<p class="pill ok">Aplicadas</p>' : '<button type="button" class="btn sm" id="ana-apply-' + esc(it.id) + '" data-act="ana-apply" data-id="' + esc(it.id) + '"' + (S.readonly ? ' disabled' : '') + '>Aplicar a mis metas</button>') + '</div>';
-}
-function anaOutHTML(it) {
-  const when = new Date(it.at);
-  const head = it.kind === 'coach' ? 'Pediste: ' + it.q : (it.kind === 'hab' ? 'Hábitos · ' : '') + (anaP(it.period).k === 'day' ? 'Día' : anaP(it.period).label) + ' · ' + fmtDay(keyOf(when)) + ', ' + fmtClock(when);
-  return '<div class="ana-out"><p class="ana-when">' + esc(head) + '</p><div class="ana-text">' + fmtAiText(it.text) + '</div>' +
-    (it.prop && hasCond('tca') ? '' : it.prop ? anaPropHTML(it) : '') + (it.habits ? habPropHTML(it.habits, 'ana', it.id) : '') + '</div>';
-}
-function anaCardHTML(kind) {
-  const isH = kind === 'hab', per = isH ? S.ana.hperiod : S.ana.period;
-  const opts = isH ? ANA_P.filter(p => p.k !== 'day') : ANA_P;
-  const busy = S.ana.busy === kind, other = S.ana.busy && !busy;
-  const items = S.ana.items.filter(x => x.kind === kind);
-  const last = items[0];
-  const dis = S.readonly || !S.loaded.aianalysis || S.ana.busy ? ' disabled' : '';
-  return '<section class="card ana" id="card-ana-' + kind + '"><div class="card-h"><h2>' + (isH ? 'Análisis de tus hábitos' : 'Análisis con IA') + '</h2><span class="meta">Con IA</span></div>' +
-    '<p class="prose">' + (isH ? 'La IA revisa qué hábitos cumpliste, tus rachas y qué ajustar para que te sea más fácil.' : (hasCond('tca') ? 'La IA revisa tus comidas, agua, sueño, ejercicio y hábitos, y te dice qué salió bien y qué ajustar.' : 'La IA revisa lo que registraste: calorías consumidas y quemadas frente a tu meta, proteína y nutrientes, agua, sueño, ejercicio y hábitos, y te dice cómo mejorar en tu caso.')) + '</p>' +
-    '<div class="segc small" role="group" aria-label="Periodo">' + opts.map(p => '<button type="button" id="ana-' + kind + '-' + p.k + '" data-act="ana-p" data-kind="' + kind + '" data-v="' + p.k + '" aria-pressed="' + (per === p.k) + '"' + (S.ana.busy ? ' disabled' : '') + '>' + p.label + '</button>').join('') + '</div>' +
-    '<button type="button" class="btn" id="ana-run-' + kind + '" data-act="ana-run" data-kind="' + kind + '"' + dis + '>' + (busy ? 'Analizando…' : 'Analizar ' + anaP(per).msg.replace(' de hoy', '')) + '</button>' +
-    (other ? '<p class="hint">Espera a que termine el otro análisis.</p>' : '') +
-    (S.ana.err[kind] ? '<p class="form-err">' + esc(S.ana.err[kind]) + '</p>' : '') +
-    (last ? anaOutHTML(last) : '') +
-    (items.length > 1 ? '<details class="hist"><summary>Análisis anteriores (' + (items.length - 1) + ')</summary>' + items.slice(1).map(anaOutHTML).join('') + '</details>' : '') +
-    '<p class="hint">Responde con IA (Claude): puede equivocarse y no reemplaza a tu médico. Usa un mensaje de tu cupo diario' + (S.chat.remaining != null ? ' (te quedan ' + S.chat.remaining + ' hoy)' : '') + '.</p></section>';
 }

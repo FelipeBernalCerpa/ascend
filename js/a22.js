@@ -1,4 +1,128 @@
 'use strict';
+function secUnlockGate(meta) {
+  return new Promise(resolve => {
+    const g = secGateEl(), box = $('#sec-gate-box');
+    let mode = 'pass', fails = 0, newCode = '', pending = null, busy = false;
+    const draw = err => {
+      let h;
+      if (mode === 'pass') {
+        h = '<h2 class="auth-h">Tus datos están cifrados</h2><p class="prose">Escribe tu frase secreta para abrirlos en este dispositivo.</p>' +
+          '<form id="sg-form" class="sec-form" novalidate><div class="field"><label class="lbl" for="sg-pass">Frase secreta</label><input type="password" id="sg-pass" autocomplete="current-password" maxlength="256"></div>' +
+          '<label class="consent"><input type="checkbox" id="sg-rem" checked><span>Recordar en este dispositivo (no la pide otra vez hasta que cierres sesión)</span></label>' +
+          '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="submit" class="btn" id="sg-go">Abrir mis datos</button></form>' +
+          '<div class="row between"><button type="button" class="link" id="sg-rec">Olvidé mi frase</button><button type="button" class="link" id="sg-out">Cerrar sesión</button></div>';
+      } else if (mode === 'rec') {
+        h = '<h2 class="auth-h">Usar el código de recuperación</h2><p class="prose">Escribe el código que guardaste al activar el cifrado y crea una frase secreta nueva.</p>' +
+          '<form id="sg-form" class="sec-form" novalidate><div class="field"><label class="lbl" for="sg-code">Código de recuperación</label><input type="text" id="sg-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64"></div>' +
+          '<div class="field"><label class="lbl" for="sg-n1">Frase secreta nueva (mínimo 10 caracteres)</label><input type="password" id="sg-n1" autocomplete="new-password" maxlength="256"></div>' +
+          '<div class="field"><label class="lbl" for="sg-n2">Repite la frase nueva</label><input type="password" id="sg-n2" autocomplete="new-password" maxlength="256"></div>' +
+          '<label class="consent"><input type="checkbox" id="sg-rem" checked><span>Recordar en este dispositivo</span></label>' +
+          '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="submit" class="btn" id="sg-go">Recuperar mis datos</button></form>' +
+          '<button type="button" class="link" id="sg-back">Volver</button>';
+      } else {
+        h = '<h2 class="auth-h">Tu código de recuperación nuevo</h2><p class="prose">El código anterior ya no sirve. Guarda este en un lugar seguro: es la única forma de abrir tus datos si olvidas tu frase.</p>' +
+          secCodeBoxHTML(newCode, 'sg') +
+          '<label class="consent"><input type="checkbox" id="sg-saved"><span>Ya guardé mi código nuevo</span></label>' +
+          '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="button" class="btn" id="sg-done">Continuar</button>';
+      }
+      box.innerHTML = h;
+      const f = $('#sg-pass') || $('#sg-code');
+      if (f) { try { f.focus(); } catch (e) {} }
+    };
+    g.onsubmit = async e => {
+      e.preventDefault();
+      if (busy) return;
+      const go = $('#sg-go');
+      const remember = !!($('#sg-rem') && $('#sg-rem').checked);
+      busy = true;
+      if (go) { go.disabled = true; go.textContent = 'Abriendo…'; }
+      try {
+        if (mode === 'pass') {
+          let raw;
+          try { raw = await secRawFrom(meta, $('#sg-pass').value); }
+          catch (err) {
+            fails++;
+            if (fails >= 5) await wait(Math.min(30000, 1000 * Math.pow(2, fails - 5)));
+            busy = false; draw('Frase incorrecta. Revisa mayúsculas, tildes y espacios.'); return;
+          }
+          const key = await secImportKey(raw); raw.fill(0);
+          SEC.vault.remembered = remember;
+          if (remember) await secKeyPut(store.userId, key);
+          resolve(key);
+          return;
+        }
+        if (mode === 'rec') {
+          const n1 = $('#sg-n1').value, n2 = $('#sg-n2').value;
+          const pe = secPassErr(n1, S.userEmail, true);
+          if (pe || n1 !== n2) { busy = false; draw(pe || 'Las dos frases no coinciden.'); return; }
+          let raw;
+          try { raw = await secRawFrom(meta, $('#sg-code').value, true); }
+          catch (err) { fails++; if (fails >= 5) await wait(Math.min(30000, 1000 * Math.pow(2, fails - 5))); busy = false; draw('Ese código no es correcto.'); return; }
+          newCode = secNewCode();
+          const nm = await secRewrap(meta, raw, { pass: n1, code: newCode });
+          await secPutRaw(SEC.VAULT, nm);
+          meta = nm;
+          pending = await secImportKey(raw); raw.fill(0);
+          SEC.vault.remembered = remember;
+          if (remember) await secKeyPut(store.userId, pending);
+          mode = 'code'; busy = false; draw(); return;
+        }
+      } catch (err) {
+        busy = false; draw('No se pudo completar. Revisa tu conexión e intenta de nuevo.');
+      }
+    };
+    g.onclick = e => {
+      const t = e.target.closest('button');
+      if (!t || busy) return;
+      if (t.id === 'sg-rec') { mode = 'rec'; draw(); }
+      else if (t.id === 'sg-back') { mode = 'pass'; draw(); }
+      else if (t.id === 'sg-out') { busy = true; secLogout(false); }
+      else if (t.id === 'sg-copy') secCopy(newCode);
+      else if (t.id === 'sg-dl') secDownload(newCode);
+      else if (t.id === 'sg-done') { if (!$('#sg-saved').checked) { draw('Marca la casilla cuando hayas guardado el código.'); return; } resolve(pending); }
+    };
+    draw();
+  });
+}
+async function secNeedsMfa() {
+  try {
+    if (!sb.auth.mfa) return false;
+    const r = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
+    const d = r && r.data;
+    return !!(d && d.nextLevel === 'aal2' && d.currentLevel !== 'aal2');
+  } catch (e) { return false; }
+}
+function secMfaGate() {
+  return new Promise(resolve => {
+    const g = secGateEl(), box = $('#sec-gate-box');
+    let busy = false;
+    const draw = err => {
+      box.innerHTML = '<h2 class="auth-h">Verificación en dos pasos</h2><p class="prose">Escribe el código de 6 dígitos que muestra tu app de autenticación.</p>' +
+        '<form id="sg-form" class="sec-form" novalidate><div class="field"><label class="lbl" for="sg-otp">Código</label><input type="text" id="sg-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="8" spellcheck="false"></div>' +
+        '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="submit" class="btn" id="sg-go">Verificar</button></form>' +
+        '<button type="button" class="link" id="sg-out">Cerrar sesión</button>';
+      try { $('#sg-otp').focus(); } catch (e) {}
+    };
+    g.onsubmit = async e => {
+      e.preventDefault();
+      if (busy) return;
+      const code = String($('#sg-otp').value || '').replace(/\D/g, '');
+      if (code.length !== 6) { draw('El código tiene 6 dígitos.'); return; }
+      busy = true;
+      $('#sg-go').disabled = true;
+      try {
+        const l = await sb.auth.mfa.listFactors();
+        const f = ((l && l.data && l.data.totp) || []).find(x => x.status === 'verified');
+        if (!f) { resolve(true); return; }
+        const r = await sb.auth.mfa.challengeAndVerify({ factorId: f.id, code });
+        if (r && r.error) { busy = false; draw('Código incorrecto o vencido. Espera el siguiente e intenta de nuevo.'); return; }
+        resolve(true);
+      } catch (err) { busy = false; draw('No se pudo verificar. Revisa tu conexión.'); }
+    };
+    g.onclick = e => { const t = e.target.closest('button'); if (t && t.id === 'sg-out' && !busy) { busy = true; secLogout(false); } };
+    draw();
+  });
+}
 async function secFetchMeta() {
   const res = await sb.from('docs').select('path,data').eq('path', SEC.VAULT);
   if (res.error) throw normErr(res.error, res.status);
@@ -236,90 +360,3 @@ function secSheetHTML(st) {
   }
 }
 const secVal = id => { const el = document.getElementById(id); return el ? el.value : ''; };
-async function secRun(st, label, fn) {
-  if (st.busy) return;
-  st.busy = label; st.err = ''; renderSheet();
-  try { await fn(); }
-  catch (e) {
-    st.busy = '';
-    st.err = (e && e.secMsg) || ((e && e.name === 'OperationError') ? 'La frase no es correcta.' : (e && e.message && /Todavía se están guardando/.test(e.message)) ? e.message : 'No se pudo completar. Revisa tu conexión e intenta de nuevo.');
-    if (S.sheet === st) renderSheet();
-    return;
-  }
-  st.busy = '';
-}
-const secErr = m => { const e = new Error(m); e.secMsg = m; return e; };
-function secSubmit(kind) {
-  const st = S.sheet;
-  if (!st || st.kind !== 'sec' || st.busy) return true;
-  if (kind === 'sec-von') {
-    const p1 = secVal('sv-p1'), p2 = secVal('sv-p2');
-    const pe = secPassErr(p1, S.userEmail, true);
-    if (pe) { sheetErr(st, pe); return true; }
-    if (p1 !== p2) { sheetErr(st, 'Las dos frases no coinciden.'); return true; }
-    st.pass = p1; st.remember = !!($('#sv-rem') && $('#sv-rem').checked);
-    st.code = secNewCode(); st.purpose = 'enable';
-    goStep('vcode');
-    return true;
-  }
-  if (kind === 'sec-vpass') {
-    const cur = secVal('sv-cur'), p1 = secVal('sv-p1'), p2 = secVal('sv-p2');
-    const pe = secPassErr(p1, S.userEmail, true);
-    if (pe || p1 !== p2) { sheetErr(st, pe || 'Las dos frases nuevas no coinciden.'); return true; }
-    secRun(st, 'Cambiando la frase…', async () => {
-      try { await secVaultRewrap(cur, { pass: p1 }); } catch (e) { if (e && e.name === 'OperationError') throw secErr('La frase actual no es correcta.'); throw e; }
-      goStep('vman'); toast('Frase secreta cambiada.');
-    });
-    return true;
-  }
-  if (kind === 'sec-vrec') {
-    const cur = secVal('sv-cur');
-    secRun(st, 'Comprobando…', async () => {
-      try { const raw = await secRawFrom(SEC.vault.meta, cur); raw.fill(0); } catch (e) { throw secErr('La frase no es correcta.'); }
-      st.pass = cur; st.code = secNewCode(); st.purpose = 'newrec';
-      st.busy = ''; goStep('vcode');
-    });
-    return true;
-  }
-  if (kind === 'sec-voff') {
-    const cur = secVal('sv-cur');
-    secRun(st, 'Descifrando tus registros… no cierres Ascend.', async () => {
-      try { await secVaultDisable(cur); } catch (e) { if (e && e.name === 'OperationError') throw secErr('La frase no es correcta.'); throw e; }
-      closeSheet(); toast('Cifrado de extremo a extremo desactivado.'); renderAjustes();
-    });
-    return true;
-  }
-  if (kind === 'sec-mfa') { secMfaVerify(st); return true; }
-  if (kind === 'sec-pass') {
-    const p1 = secVal('sp-p1'), p2 = secVal('sp-p2');
-    const pe = secPassErr(p1, S.userEmail);
-    if (pe || p1 !== p2) { sheetErr(st, pe || 'Las dos contraseñas no coinciden.'); return true; }
-    secRun(st, 'Guardando…', async () => {
-      const r = await sb.auth.updateUser({ password: p1 });
-      if (r && r.error) {
-        const m = String(r.error.message || '');
-        throw secErr(/reauth|nonce/i.test(m) ? 'Por seguridad, cierra sesión y usa «Olvidé mi contraseña» para cambiarla.' : /different|same/i.test(m) ? 'La contraseña nueva debe ser distinta a la anterior.' : /aal2|assurance/i.test(m) ? 'Entra con tu código de dos pasos para cambiarla.' : /weak|pwned|leaked/i.test(m) ? 'Esa contraseña apareció en filtraciones conocidas: elige otra.' : 'No se pudo cambiar: ' + m);
-      }
-      closeSheet(); toast('Contraseña cambiada.');
-    });
-    return true;
-  }
-  if (kind === 'sec-del') {
-    if (String(secVal('sd-confirm')).trim().toUpperCase() !== 'ELIMINAR') { sheetErr(st, 'Escribe ELIMINAR para confirmar.'); return true; }
-    secRun(st, 'Eliminando tu cuenta…', async () => {
-      saver.pend.clear();
-      const r = await sb.rpc('delete_my_account');
-      if (r && r.error) {
-        const m = String(r.error.message || '') + ' ' + String(r.error.code || '');
-        throw secErr(/delete_my_account|PGRST202|Could not find|does not exist/i.test(m) ? 'Esta opción aún no está activa en el servidor. Escríbele al administrador de Ascend.' : /dos pasos|mfa|aal/i.test(m) ? 'Entra con tu código de dos pasos para eliminar la cuenta.' : 'No se pudo eliminar. Revisa tu conexión e intenta de nuevo.');
-      }
-      await secKeyDel(store.userId);
-      secClearLocal();
-      try { await sb.auth.signOut({ scope: 'local' }); } catch (e) {}
-      try { sessionStorage.setItem('ascend-out', 'deleted'); } catch (e) {}
-      location.reload();
-    });
-    return true;
-  }
-  return false;
-}

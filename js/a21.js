@@ -1,4 +1,158 @@
 'use strict';
+function v4Change(t) { return !!(t.dataset && (t.dataset.rf || t.dataset.hf) && v4Input(t)); }
+HOY.rems = remsTodayHTML;
+HOY.aiday = aiDayHTML;
+HOY_ORDER.splice(HOY_ORDER.indexOf('meds') + 1, 0, 'rems');
+HOY_ORDER.push('aiday');
+
+/* ---------- arranque ---------- */
+async function refreshData() {
+  if (!store.userId || S.refreshing || !S.dataReady) return;
+  if (saver.pend.size || saver.busy.size || S.inflight > 0 || deleting.size) return;
+  S.refreshing = true;
+  const wv = store.wv;
+  /* si algo se guardó o se borró mientras leía, esa lectura ya es vieja: se descarta */
+  const quiet = () => store.wv === wv && !saver.pend.size && !saver.busy.size && S.inflight <= 0 && !deleting.size;
+  try { if (await store.load(quiet)) store.emit(); S.offline = false; }
+  catch (e) { if (e && e.code === 'unavailable') S.offline = true; }
+  S.refreshing = false;
+  refreshStatus();
+}
+function showLoadError(msg) {
+  S.offline = true;
+  refreshStatus();
+  const v = $('#view-hoy');
+  for (const x of $$('.view')) x.hidden = x !== v;
+  v.innerHTML = '<section class="card"><div class="card-h"><h2>Sin datos por ahora</h2></div><p class="prose">' + esc(msg) + '</p>' +
+    '<button type="button" class="btn" data-act="reload">Intentar de nuevo</button></section>';
+}
+let appBound = false;
+function bindApp() {
+  if (appBound) return;
+  appBound = true;
+  document.addEventListener('click', onClick);
+  document.addEventListener('input', onInput);
+  document.addEventListener('change', onChange);
+  document.addEventListener('submit', onSubmit);
+  document.addEventListener('keydown', onKey);
+  document.addEventListener('toggle', e => {
+    const d = e.target;
+    if (d && d.dataset && d.dataset.hist) {
+      if (d.open) S.openHist = d.dataset.hist;
+      else if (S.openHist === d.dataset.hist) S.openHist = null;
+    }
+  }, true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') { saver.flushAll(); if (S.sheet && S.sheet.step === 'scan') { stopScan(); setScanMsg('La cámara se pausó. Toca volver y abre el escáner otra vez, o escribe el código.'); } return; }
+    if (S.tab === 'hoy') renderHoy(['meds', 'meters']);
+    if (Date.now() - store.lastLoad > 60000) refreshData();
+  });
+  window.addEventListener('pagehide', () => saver.flushAll());
+  window.addEventListener('online', () => { S.offline = false; refreshStatus(); refreshData(); });
+  setInterval(() => {
+    const tk = todayKey();
+    if (S.lastToday !== tk) {
+      const wasToday = S.viewKey === S.lastToday;
+      S.lastToday = tk;
+      if (wasToday) S.viewKey = tk;
+      renderActive();
+      return;
+    }
+    if (S.tab === 'hoy' && S.viewKey === tk && S.dataReady) renderHoy(['meds']);
+  }, 30000);
+  try {
+    let lastW = 0, rt = 0;
+    const obs = new ResizeObserver(entries => {
+      const w = Math.round(entries[0].contentRect.width);
+      if (w === lastW) return;
+      lastW = w;
+      clearTimeout(rt);
+      rt = setTimeout(() => drawCharts($('#view-' + S.tab)), 120);
+    });
+    obs.observe($('#main'));
+  } catch (e) {}
+}
+async function startApp(user) {
+  if (S.started || !user || S.recovering) return;
+  S.started = true;
+  store.kind = 'cloud';
+  store.userId = user.id;
+  S.userEmail = user.email || '';
+  S.canWrite = true;
+  $('#splash').hidden = true;
+  $('#auth').hidden = true;
+  $('#app').hidden = false;
+  bindApp();
+  setTab(lsGet(LS_TAB) || 'hoy');
+  setStatus('loading');
+  try {
+    await store.load();
+  } catch (e) {
+    const raw = (e && e.raw) || {};
+    const missing = /PGRST205|42P01|does not exist|Could not find the table/i.test(String(raw.code || '') + ' ' + String(raw.message || e.message || ''));
+    showLoadError(missing
+      ? 'La base de datos de Ascend todavía no está lista: falta crear la tabla de registros.'
+      : 'No se pudieron cargar tus datos. Revisa tu conexión e intenta de nuevo.');
+    return;
+  }
+  S.dataReady = true;
+  storeReadyResolve();
+  subscribeAll();
+  v4Subscribe();
+  refreshStatus();
+  renderActive();
+  if (!Object.keys(store.docs).length && !S.readonly) { setTab('guia'); openPlan(); }
+}
+async function boot() {
+  bindAuth();
+  if (!sb) {
+    showAuth(CONFIGURED
+      ? 'No se pudo cargar la conexión. Revisa tu internet y recarga la página.'
+      : 'Esta copia de Ascend todavía no está conectada a su base de datos: falta poner la URL y la clave de Supabase en index.html.');
+    return;
+  }
+  if (/type=recovery/.test(location.hash)) S.recovering = true;
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') { S.recovering = true; setTimeout(() => showAuth('', 'recovery'), 0); return; }
+    if (event === 'SIGNED_OUT') { if (S.started) setTimeout(() => location.reload(), 0); return; }
+    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session && session.user && !S.recovering) {
+      const u = session.user;
+      setTimeout(() => startApp(u), 0);
+    }
+  });
+  try {
+    const res = await sb.auth.getSession();
+    const session = res && res.data ? res.data.session : null;
+    if (S.recovering) { showAuth('', 'recovery'); return; }
+    if (session && session.user) startApp(session.user);
+    else if (!S.started) showAuth();
+  } catch (e) {
+    showAuth('No se pudo conectar. Revisa tu internet y recarga la página.');
+  }
+}
+/* =====================================================================
+   Ascend v5: seguridad y privacidad
+   - cifrado de extremo a extremo opcional (bóveda con frase secreta y código de recuperación)
+   - verificación en dos pasos (TOTP) opcional
+   - cierre de sesión por inactividad, cerrar sesión en todos los dispositivos
+   - permiso explícito antes de enviar datos a la IA
+   - eliminar la cuenta, contraseñas más fuertes
+   ===================================================================== */
+const SEC = {
+  VAULT: 'sec/vault', CONSENT: 'config/consent', POLICY_V: '2026-10-05',
+  vault: { meta: null, key: null, remembered: false, bad: [] },
+  mfa: { on: null },
+  consent: null,
+  inflight: 0, last: 0, lastW: 0, pendingAi: null, started: null,
+  /* la sesión de esta carga quedó cerrada: nada puede volver a abrir la app hasta que la página recargue */
+  dead: false
+};
+let secGateP = null;
+const SEC_PBKDF_IT = 600000, SEC_REC_IT = 100000;
+const SEC_B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const SEC_IDLE = [[0, 'Nunca'], [15, '15 minutos'], [60, '1 hora'], [480, '8 horas']];
+const SEC_COMMON = ['password', 'contrasena', 'contraseña', '123456', '12345678', '123456789', '1234567890', 'qwerty', 'qwertyuiop', 'asdfgh', 'zxcvbn', 'abc123', '111111', 'iloveyou', 'teamo', 'admin', 'ascend', 'colombia', 'futbol', 'football', 'millonarios', 'nacional', 'america', 'welcome', 'bienvenido'];
+
 /* ---------- utilidades de cifrado (WebCrypto) ---------- */
 const secTE = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null, secTD = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
 function secB64e(buf) {
@@ -255,128 +409,4 @@ function secDownload(code) {
   a.href = url; a.download = 'ascend-codigo-de-recuperacion.txt';
   document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
-}
-function secUnlockGate(meta) {
-  return new Promise(resolve => {
-    const g = secGateEl(), box = $('#sec-gate-box');
-    let mode = 'pass', fails = 0, newCode = '', pending = null, busy = false;
-    const draw = err => {
-      let h;
-      if (mode === 'pass') {
-        h = '<h2 class="auth-h">Tus datos están cifrados</h2><p class="prose">Escribe tu frase secreta para abrirlos en este dispositivo.</p>' +
-          '<form id="sg-form" class="sec-form" novalidate><div class="field"><label class="lbl" for="sg-pass">Frase secreta</label><input type="password" id="sg-pass" autocomplete="current-password" maxlength="256"></div>' +
-          '<label class="consent"><input type="checkbox" id="sg-rem" checked><span>Recordar en este dispositivo (no la pide otra vez hasta que cierres sesión)</span></label>' +
-          '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="submit" class="btn" id="sg-go">Abrir mis datos</button></form>' +
-          '<div class="row between"><button type="button" class="link" id="sg-rec">Olvidé mi frase</button><button type="button" class="link" id="sg-out">Cerrar sesión</button></div>';
-      } else if (mode === 'rec') {
-        h = '<h2 class="auth-h">Usar el código de recuperación</h2><p class="prose">Escribe el código que guardaste al activar el cifrado y crea una frase secreta nueva.</p>' +
-          '<form id="sg-form" class="sec-form" novalidate><div class="field"><label class="lbl" for="sg-code">Código de recuperación</label><input type="text" id="sg-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64"></div>' +
-          '<div class="field"><label class="lbl" for="sg-n1">Frase secreta nueva (mínimo 10 caracteres)</label><input type="password" id="sg-n1" autocomplete="new-password" maxlength="256"></div>' +
-          '<div class="field"><label class="lbl" for="sg-n2">Repite la frase nueva</label><input type="password" id="sg-n2" autocomplete="new-password" maxlength="256"></div>' +
-          '<label class="consent"><input type="checkbox" id="sg-rem" checked><span>Recordar en este dispositivo</span></label>' +
-          '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="submit" class="btn" id="sg-go">Recuperar mis datos</button></form>' +
-          '<button type="button" class="link" id="sg-back">Volver</button>';
-      } else {
-        h = '<h2 class="auth-h">Tu código de recuperación nuevo</h2><p class="prose">El código anterior ya no sirve. Guarda este en un lugar seguro: es la única forma de abrir tus datos si olvidas tu frase.</p>' +
-          secCodeBoxHTML(newCode, 'sg') +
-          '<label class="consent"><input type="checkbox" id="sg-saved"><span>Ya guardé mi código nuevo</span></label>' +
-          '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="button" class="btn" id="sg-done">Continuar</button>';
-      }
-      box.innerHTML = h;
-      const f = $('#sg-pass') || $('#sg-code');
-      if (f) { try { f.focus(); } catch (e) {} }
-    };
-    g.onsubmit = async e => {
-      e.preventDefault();
-      if (busy) return;
-      const go = $('#sg-go');
-      const remember = !!($('#sg-rem') && $('#sg-rem').checked);
-      busy = true;
-      if (go) { go.disabled = true; go.textContent = 'Abriendo…'; }
-      try {
-        if (mode === 'pass') {
-          let raw;
-          try { raw = await secRawFrom(meta, $('#sg-pass').value); }
-          catch (err) {
-            fails++;
-            if (fails >= 5) await wait(Math.min(30000, 1000 * Math.pow(2, fails - 5)));
-            busy = false; draw('Frase incorrecta. Revisa mayúsculas, tildes y espacios.'); return;
-          }
-          const key = await secImportKey(raw); raw.fill(0);
-          SEC.vault.remembered = remember;
-          if (remember) await secKeyPut(store.userId, key);
-          resolve(key);
-          return;
-        }
-        if (mode === 'rec') {
-          const n1 = $('#sg-n1').value, n2 = $('#sg-n2').value;
-          const pe = secPassErr(n1, S.userEmail, true);
-          if (pe || n1 !== n2) { busy = false; draw(pe || 'Las dos frases no coinciden.'); return; }
-          let raw;
-          try { raw = await secRawFrom(meta, $('#sg-code').value, true); }
-          catch (err) { fails++; if (fails >= 5) await wait(Math.min(30000, 1000 * Math.pow(2, fails - 5))); busy = false; draw('Ese código no es correcto.'); return; }
-          newCode = secNewCode();
-          const nm = await secRewrap(meta, raw, { pass: n1, code: newCode });
-          await secPutRaw(SEC.VAULT, nm);
-          meta = nm;
-          pending = await secImportKey(raw); raw.fill(0);
-          SEC.vault.remembered = remember;
-          if (remember) await secKeyPut(store.userId, pending);
-          mode = 'code'; busy = false; draw(); return;
-        }
-      } catch (err) {
-        busy = false; draw('No se pudo completar. Revisa tu conexión e intenta de nuevo.');
-      }
-    };
-    g.onclick = e => {
-      const t = e.target.closest('button');
-      if (!t || busy) return;
-      if (t.id === 'sg-rec') { mode = 'rec'; draw(); }
-      else if (t.id === 'sg-back') { mode = 'pass'; draw(); }
-      else if (t.id === 'sg-out') { busy = true; secLogout(false); }
-      else if (t.id === 'sg-copy') secCopy(newCode);
-      else if (t.id === 'sg-dl') secDownload(newCode);
-      else if (t.id === 'sg-done') { if (!$('#sg-saved').checked) { draw('Marca la casilla cuando hayas guardado el código.'); return; } resolve(pending); }
-    };
-    draw();
-  });
-}
-async function secNeedsMfa() {
-  try {
-    if (!sb.auth.mfa) return false;
-    const r = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
-    const d = r && r.data;
-    return !!(d && d.nextLevel === 'aal2' && d.currentLevel !== 'aal2');
-  } catch (e) { return false; }
-}
-function secMfaGate() {
-  return new Promise(resolve => {
-    const g = secGateEl(), box = $('#sec-gate-box');
-    let busy = false;
-    const draw = err => {
-      box.innerHTML = '<h2 class="auth-h">Verificación en dos pasos</h2><p class="prose">Escribe el código de 6 dígitos que muestra tu app de autenticación.</p>' +
-        '<form id="sg-form" class="sec-form" novalidate><div class="field"><label class="lbl" for="sg-otp">Código</label><input type="text" id="sg-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="8" spellcheck="false"></div>' +
-        '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="submit" class="btn" id="sg-go">Verificar</button></form>' +
-        '<button type="button" class="link" id="sg-out">Cerrar sesión</button>';
-      try { $('#sg-otp').focus(); } catch (e) {}
-    };
-    g.onsubmit = async e => {
-      e.preventDefault();
-      if (busy) return;
-      const code = String($('#sg-otp').value || '').replace(/\D/g, '');
-      if (code.length !== 6) { draw('El código tiene 6 dígitos.'); return; }
-      busy = true;
-      $('#sg-go').disabled = true;
-      try {
-        const l = await sb.auth.mfa.listFactors();
-        const f = ((l && l.data && l.data.totp) || []).find(x => x.status === 'verified');
-        if (!f) { resolve(true); return; }
-        const r = await sb.auth.mfa.challengeAndVerify({ factorId: f.id, code });
-        if (r && r.error) { busy = false; draw('Código incorrecto o vencido. Espera el siguiente e intenta de nuevo.'); return; }
-        resolve(true);
-      } catch (err) { busy = false; draw('No se pudo verificar. Revisa tu conexión.'); }
-    };
-    g.onclick = e => { const t = e.target.closest('button'); if (t && t.id === 'sg-out' && !busy) { busy = true; secLogout(false); } };
-    draw();
-  });
 }

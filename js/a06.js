@@ -305,7 +305,7 @@ function metersHTML(c) {
   const steps = Number(c.day.steps) || 0;
   const none = '<small>Sin registro</small>';
   return '<div id="card-meters" class="meters" role="group" aria-label="Resumen del día">' +
-    meter('Medicinas', st.doses ? st.taken + '<small>/' + st.doses + '</small>' : '<small>Sin tomas</small>', st.doses ? st.taken / st.doses : 0, '') +
+    (medsOn() ? meter('Medicinas', st.doses ? st.taken + '<small>/' + st.doses + '</small>' : '<small>Sin tomas</small>', st.doses ? st.taken / st.doses : 0, '') : '') +
     meter('Agua', fmtNum(st.water / 1000, 2) + '<small> / ' + fmtNum(st.goal / 1000, 2) + ' L</small>', st.water / st.goal, 'water') +
     meter('Calorías', nu.count ? fmtInt(nu.kcal) + '<small> ' + (kg ? '/ ' + fmtInt(kg) : 'kcal') + '</small>' : none, kg ? nu.kcal / kg : null, kg && goalKind('kcal') === 'max' && nu.kcal > kg ? 'camel over' : 'camel') +
     meter('Proteína', nu.count ? fmtNut('p', nu.p) + '<small> ' + (pg ? '/ ' + fmtNut('p', pg) + ' g' : 'g') + '</small>' : none, pg ? nu.p / pg : null, pg && goalKind('p') === 'max' && nu.p > pg ? 'over' : '') +
@@ -314,6 +314,7 @@ function metersHTML(c) {
   '</div>';
 }
 function medsHTML(c) {
+  if (!medsOn()) return '';
   const head = meta => '<div class="card-h"><h2>Medicamentos</h2><span class="meta">' + (meta ? meta + ' · ' : '') + '<button type="button" class="link inline" id="meds-edit" data-act="meds-edit">Editar</button></span></div>';
   const wrap = inner => '<section id="card-meds" class="card">' + inner + '</section>';
   if (!S.medsLoaded || !S.daysLoaded) return wrap(head('') + '<p class="empty">Cargando tus medicamentos…</p>');

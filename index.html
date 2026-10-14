@@ -40,6 +40,49 @@
 .quote-hoy .q-a{font-family:var(--f-mono);font-size:12px;letter-spacing:.03em;color:var(--accent);font-weight:600;margin:0;text-transform:uppercase}
 .quote-hoy .q-a::before{content:'— '}
 </style>
+<style id="v6">
+/* ---------- v6: gamificación y ajustes ---------- */
+:root{--g-gold:#c9a227}
+:root[data-theme="dark"],:root.dark{--g-gold:#e3c45c}
+.game .g-top{display:flex;align-items:center;gap:12px}
+.g-badge{width:54px;height:54px;border-radius:14px;flex:none;display:grid;place-items:center;text-align:center;line-height:1;
+  color:#241f0e;background:linear-gradient(145deg,color-mix(in srgb,var(--rc,#c9a227) 55%,#fff),var(--rc,#c9a227));
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.35),0 6px 14px -8px var(--rc,#c9a227)}
+.g-ic{font-size:18px;display:block;margin-top:5px}
+.g-badge small{display:block;font-family:var(--f-display);font-weight:800;font-size:8.5px;letter-spacing:.04em;margin-top:2px;padding-bottom:4px}
+.g-meta{flex:1;min-width:0}
+.g-rank{font-family:var(--f-display);font-weight:800;font-size:20px;line-height:1.1}
+.g-sub{color:var(--muted);font-size:12.5px;font-family:var(--f-mono);margin-top:2px}
+.g-today{flex:none;align-self:flex-start;font-family:var(--f-mono);font-size:11px;font-weight:600;color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent);padding:3px 8px;border-radius:999px}
+.g-xprow{display:flex;justify-content:space-between;margin:14px 0 6px;font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
+.g-bar{height:12px;border-radius:999px;background:color-mix(in srgb,var(--accent) 14%,transparent);overflow:hidden}
+.g-bar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--accent),color-mix(in srgb,var(--accent) 45%,#fff));transition:width .6s cubic-bezier(.2,.7,.2,1)}
+.g-hint{font-size:12.5px;color:var(--muted);margin-top:8px}
+.g-streak{display:flex;align-items:center;gap:10px;margin-top:14px;padding-top:13px;border-top:1px solid var(--line)}
+.g-flame{font-size:22px}
+.g-stxt b{font-family:var(--f-display);font-weight:800;font-size:17px;display:block;line-height:1.1}
+.g-stxt small{font-size:11.5px;color:var(--muted)}
+.g-shields{margin-left:auto;display:flex;gap:4px}
+.g-sh{font-size:15px;filter:grayscale(1);opacity:.35}
+.g-sh.on{filter:none;opacity:1}
+.g-decay{margin:12px 0 0;font-size:12.5px;color:var(--muted);background:color-mix(in srgb,var(--accent) 7%,transparent);border-radius:var(--r-sm);padding:9px 11px}
+
+/* logros */
+#card-ach .ach{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid var(--line)}
+#card-ach .ach:first-of-type{border-top:0;padding-top:4px}
+.ach-ic{width:42px;height:42px;border-radius:12px;flex:none;display:grid;place-items:center;font-size:20px;background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.ach-ic.gold{background:color-mix(in srgb,var(--g-gold) 22%,transparent)}
+.ach-b{min-width:0;flex:1}
+.ach-v{font-family:var(--f-display);font-weight:800;font-size:17px;line-height:1.15}
+.ach-l{font-size:12.5px;color:var(--muted)}
+.ach-tag{flex:none;font-family:var(--f-mono);font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:4px 8px;border-radius:999px}
+
+/* fila de ajuste con switch */
+.setrow{display:flex;align-items:center;gap:12px}
+.setrow-i{min-width:0;flex:1}
+.setrow-i b{display:block;font-weight:700}
+.setrow-i span{font-size:12.5px;color:var(--muted);line-height:1.35}
+</style>
 </head>
 <body>
 
@@ -127,5 +170,6 @@
 <script src="/js/a21.js"></script>
 <script src="/js/a22.js"></script>
 <script src="/js/a23.js"></script>
+<script src="/js/a24.js"></script>
 </body>
 </html>

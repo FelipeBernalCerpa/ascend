@@ -320,115 +320,131 @@ function onKey(e) {
   if (e.key === 'Escape' && S.sheet) { e.preventDefault(); closeSheet(); }
 }
 
-const HOY_ORDER = ['daynav', 'meters', 'meds', 'water', 'food', 'act', 'boost', 'sleep', 'feel', 'notes'];
-const HOY = { daynav: daynavHTML, meters: metersHTML, meds: medsHTML, water: waterHTML, food: foodHTML, act: actHTML, boost: boostHTML, sleep: sleepHTML, feel: feelHTML, notes: notesHTML };
-function renderHoy(parts) {
-  const root = $('#view-hoy');
-  if (!root) return;
-  const c = { k: S.viewKey, day: getDay(S.viewKey), isToday: S.viewKey === todayKey() };
-  if (!parts || !$('#card-meds', root)) { swap(root, quoteHTML() + HOY_ORDER.map(p => HOY[p](c)).join('')); return; }
-  for (const p of parts) { const el = document.getElementById('card-' + p); if (el) replaceEl(el, HOY[p](c)); }
+/* ---------- v6: gamificación (XP, rangos, racha) y medicamentos opcionales ----------
+   El XP se calcula de lo que ya registras (hábitos, agua, sueño, ejercicio, comida): no guarda estado nuevo.
+   Nada de esto premia ni castiga por calorías ni por peso. */
+
+const RANKS = [
+  { k: 'bronce',   name: 'Bronce',   min: 0,     icon: '🥉', color: '#a9713b' },
+  { k: 'plata',    name: 'Plata',    min: 600,   icon: '🥈', color: '#9aa6ad' },
+  { k: 'oro',      name: 'Oro',      min: 1800,  icon: '🥇', color: '#c9a227' },
+  { k: 'platino',  name: 'Platino',  min: 4000,  icon: '🔷', color: '#5fb2c4' },
+  { k: 'diamante', name: 'Diamante', min: 8000,  icon: '💠', color: '#6e8be0' },
+  { k: 'maestro',  name: 'Maestro',  min: 15000, icon: '🔮', color: '#9b5de5' },
+  { k: 'leyenda',  name: 'Leyenda',  min: 28000, icon: '👑', color: '#d9b43a' }
+];
+
+function dayExercise(d) {
+  if (!d) return false;
+  if (d.ex && Array.isArray(d.ex.types) && d.ex.types.some(t => t !== 'descanso')) return true;
+  return Array.isArray(d.acts) && d.acts.length > 0;
+}
+function dayWaterMet(d) { return !!d && sum(d.water) >= (Number(S.settings.waterGoal) || 2000); }
+function gDayXP(k) {
+  const d = S.days[k];
+  if (!d) return 0;
+  let xp = 0;
+  const hs = habDayStats(k);
+  xp += hs.done * 10;
+  if (hs.due > 0 && hs.done >= hs.due) xp += 25;
+  if (dayWaterMet(d)) xp += 8;
+  if (sleepHours(d.sleep) != null) xp += 5;
+  if (dayExercise(d)) xp += 15;
+  const food = Array.isArray(d.food) ? d.food.length : 0;
+  xp += Math.min(food, 5) * 3;
+  return xp;
+}
+function gDayActive(k) {
+  const d = S.days[k];
+  if (!d) return false;
+  const hs = habDayStats(k);
+  return hs.done > 0 || dayExercise(d) || dayWaterMet(d) || sleepHours(d.sleep) != null || (Array.isArray(d.food) && d.food.length > 0);
+}
+function gTotalXP() {
+  let t = 0;
+  for (const k of Object.keys(S.days)) t += gDayXP(k);
+  return t;
+}
+function gCurStreak() {
+  const tk = todayKey();
+  let k = gDayActive(tk) ? tk : addDays(tk, -1);
+  let n = 0;
+  while (gDayActive(k)) { n++; k = addDays(k, -1); }
+  return n;
+}
+function gDaysInactive() {
+  const tk = todayKey();
+  for (let i = 0; i < 400; i++) if (gDayActive(addDays(tk, -i))) return i;
+  return 400;
+}
+function gameStats() {
+  const raw = gTotalXP();
+  const di = gDaysInactive();
+  const factor = 1 - Math.min(0.3, Math.max(0, di - 3) * 0.02);
+  const xp = Math.round(raw * factor);
+  let ri = 0;
+  for (let i = 0; i < RANKS.length; i++) if (xp >= RANKS[i].min) ri = i;
+  const r = RANKS[ri], next = RANKS[ri + 1];
+  let divName = '', divNow = r.min, divEnd = r.min, barPct = 0, toNext = 0, nextLabel = '';
+  if (next) {
+    const third = (next.min - r.min) / 3;
+    let d = Math.floor((xp - r.min) / third);
+    if (d > 2) d = 2; if (d < 0) d = 0;
+    divName = ['III', 'II', 'I'][d];
+    divNow = Math.round(r.min + d * third);
+    divEnd = Math.round(r.min + (d + 1) * third);
+    barPct = Math.max(0, Math.min(100, Math.round((xp - divNow) / (divEnd - divNow) * 100)));
+    toNext = Math.max(0, divEnd - xp);
+    const nextName = d < 2 ? r.name + ' ' + ['II', 'I'][d] : next.name + ' III';
+    nextLabel = 'Te faltan ' + fmtInt(toNext) + ' XP para ' + nextName + '.';
+  } else {
+    const lvl = Math.floor((xp - r.min) / 5000) + 1;
+    divNow = r.min + (lvl - 1) * 5000; divEnd = r.min + lvl * 5000;
+    barPct = Math.max(0, Math.min(100, Math.round((xp - divNow) / 5000 * 100)));
+    toNext = Math.max(0, divEnd - xp);
+    nextLabel = 'Leyenda nivel ' + lvl + ' · ' + fmtInt(toNext) + ' XP para el siguiente.';
+  }
+  const streak = gCurStreak();
+  return { raw, xp, rankObj: r, divName, divNow, divEnd, barPct, toNext, nextLabel, streak,
+    shields: Math.min(3, Math.floor(streak / 7)), todayXp: gDayXP(todayKey()), decaying: di > 3 && raw > 0 };
+}
+function gameCardHTML() {
+  if (!S.daysLoaded || !S.loaded.settings) return '<section class="card game" id="card-game"><p class="empty">Cargando tu progreso…</p></section>';
+  const g = gameStats(), r = g.rankObj, rn = esc(r.name + (g.divName ? ' ' + g.divName : ''));
+  return '<section class="card game" id="card-game">' +
+    '<div class="g-top">' +
+      '<div class="g-badge" style="--rc:' + r.color + '"><span class="g-ic">' + r.icon + '</span><small>' + esc((r.name + (g.divName ? ' ' + g.divName : '')).toUpperCase()) + '</small></div>' +
+      '<div class="g-meta"><div class="g-rank">' + rn + '</div><div class="g-sub">' + fmtInt(g.raw) + ' XP en total</div></div>' +
+      (g.todayXp ? '<span class="g-today">+' + g.todayXp + ' hoy</span>' : '') +
+    '</div>' +
+    '<div class="g-xprow"><span>' + fmtInt(g.divNow) + ' XP</span><span>' + fmtInt(g.divEnd) + ' XP</span></div>' +
+    '<div class="g-bar"><i style="width:' + g.barPct + '%"></i></div>' +
+    '<div class="g-hint">' + esc(g.nextLabel) + '</div>' +
+    '<div class="g-streak"><span class="g-flame">🔥</span><div class="g-stxt"><b>' + g.streak + (g.streak === 1 ? ' día' : ' días') + '</b><small>' + (g.streak ? 'tu racha' : 'empieza una racha hoy') + '</small></div>' +
+      '<div class="g-shields" title="Escudos de racha">' + [0, 1, 2].map(i => '<span class="g-sh' + (i < g.shields ? ' on' : '') + '">🛡️</span>').join('') + '</div></div>' +
+    (g.decaying ? '<p class="g-decay">Tu nivel bajó un poco mientras descansabas. Vuelve hoy y lo recuperas en días.</p>' : '') +
+    '</section>';
 }
 
-/* ---------- PROGRESO ---------- */
-const tone = (r, ok, warn) => (r >= ok ? 'ok' : r >= warn ? 'warn' : 'crit');
-function weekHTML() {
-  const tk = todayKey(), keys = [];
-  for (let i = 6; i >= 0; i--) keys.push(addDays(tk, -i));
-  const goal = Number(S.settings.waterGoal) || 2000, sg = Number(S.settings.sleepGoal) || 8.5;
-  const rows = [
-    { k: 'med', label: 'Medicinas', f: (k, d) => {
-      const ds = dosesFor(k);
-      if (!d || !ds.length) return null;
-      const t = ds.filter(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken').length;
-      return { txt: t + '/' + ds.length, t: tone(t / ds.length, 0.9, 0.6), aria: t + ' de ' + ds.length + ' tomas' };
-    } },
-    { k: 'agua', label: 'Agua', f: (k, d) => {
-      const w = d ? sum(d.water) : 0;
-      if (!w) return null;
-      return { txt: fmtNum(w / 1000, 1), t: tone(w / goal, 0.9, 0.6), aria: fmtInt(w) + ' ml' };
-    } },
-    { k: 'ref', label: 'Hábitos', f: (k, d) => {
-      const hs = habDayStats(k);
-      if (!hs.done || !hs.due) return null;
-      return { txt: hs.done + '/' + hs.due, t: tone(hs.done / hs.due, 0.8, 0.5), aria: hs.done + ' de ' + hs.due + ' hábitos' };
-    } },
-    { k: 'sueno', label: 'Sueño', f: (k, d) => {
-      const h = d ? sleepHours(d.sleep) : null;
-      if (h == null) return null;
-      return { txt: fmtNum(h, 1), t: h >= sg ? 'ok' : h >= sg - 1 ? 'warn' : 'crit', aria: fmtNum(h, 1) + ' horas' };
-    } },
-    { k: 'kcal', label: 'Calorías', f: (k, d) => {
-      const nu = dayNutri(d);
-      if (!nu.count) return null;
-      const g = Number((S.settings.nutri || {}).kcal) || 0;
-      return { txt: fmtK(nu.kcal), t: g ? tone(nu.kcal / g, 0.9, 0.7) : 'prog', aria: fmtInt(nu.kcal) + ' kcal' };
-    } },
-    { k: 'pasos', label: 'Pasos', f: (k, d) => {
-      const n = d ? Number(d.steps) || 0 : 0;
-      if (!n) return null;
-      const g = Number(S.settings.stepGoal) || 0;
-      return { txt: fmtK(n), t: g ? tone(n / g, 1, 0.6) : 'prog', aria: fmtInt(n) + ' pasos' };
-    } }
-  ];
-  let html = '<div class="week"><span></span>' + keys.map(k => { const d = parseKey(k); return '<span class="wk-h' + (k === tk ? ' today' : '') + '"><b>' + WD1[d.getDay()] + '</b>' + d.getDate() + '</span>'; }).join('');
-  for (const r of rows) {
-    html += '<span class="wk-lbl">' + r.label + '</span>';
-    for (const k of keys) {
-      const v = r.f(k, S.days[k]);
-      let t = v ? v.t : 'none';
-      if (k === tk && v && t !== 'ok') t = 'prog';
-      html += '<button type="button" class="cell' + (k === tk ? ' today' : '') + '" id="wk-' + r.k + '-' + k + '" data-act="goto-day" data-day="' + k + '" data-t="' + t + '" aria-label="' + esc(r.label + ', ' + fmtDay(k) + ': ' + (v ? v.aria : 'sin registro')) + '">' + (v ? esc(v.txt) : '·') + '</button>';
-    }
+function achStats() {
+  const keys = Object.keys(S.days);
+  const act = new Set(), water = new Set();
+  let habits = 0, exDays = 0, logged = 0;
+  for (const k of keys) {
+    const d = S.days[k];
+    if (!d) continue;
+    logged++;
+    if (d.boost) for (const x of Object.keys(d.boost)) if (d.boost[x]) habits++;
+    if (dayWaterMet(d)) water.add(k);
+    if (dayExercise(d)) exDays++;
+    if (gDayActive(k)) act.add(k);
   }
-  html += '</div>';
-  return '<section class="card" id="card-week"><div class="card-h"><h2>Tu semana</h2><span class="meta">Toca un día para abrirlo</span></div>' + html +
-    '<p class="legend"><span class="lg"><i data-t="ok"></i>Cumplido</span><span class="lg"><i data-t="warn"></i>A medias</span><span class="lg"><i data-t="crit"></i>Bajo</span><span class="lg"><i></i>Sin registro</span></p></section>';
-}
-function measureHTML(kind) {
-  const isW = kind === 'weight', field = kind, unit = isW ? 'kg' : 'cm', title = isW ? 'Peso' : 'Estatura';
-  const every = isW ? 7 : 28;
-  const list = S.measures.filter(m => hasNum(m[field])).sort(byDate);
-  const last = list[list.length - 1], prev = list[list.length - 2];
-  const tk = todayKey();
-  let top;
-  if (!S.loaded.measures) top = '<p class="empty">Cargando tus mediciones…</p>';
-  else if (!last) top = '<p class="empty">Aún no hay registros de ' + title.toLowerCase() + '. Agrega el primero abajo.</p>';
-  else {
-    const delta = prev ? Number(last[field]) - Number(prev[field]) : null;
-    const next = addDays(last.date, every), due = next <= tk;
-    const sign = d => (d > 0 ? '+' : d < 0 ? '−' : '±');
-    top = '<div class="m-top"><div><span class="big">' + fmtNum(last[field], 1, 1) + '</span><span class="unit">' + unit + '</span></div>' +
-      '<div class="m-meta"><span>' + fmtDate(last.date) + '</span>' + (delta != null ? '<span class="delta">' + sign(delta) + fmtNum(Math.abs(delta), 1, 1) + ' ' + unit + ' desde el ' + fmtShort(prev.date) + '</span>' : '') + '</div></div>' +
-      '<p class="pill ' + (due ? 'accent' : 'muted') + ' next">' + (due ? (isW ? 'Toca pesarte esta semana' : 'Ya puedes medirte este mes') : (isW ? 'Próxima pesada: ' : 'Próxima medición: ') + fmtDay(next)) + '</p>';
-    S.charts[kind] = { points: list.map(m => ({ x: parseKey(m.date).getTime(), y: Number(m[field]) })), unit, dec: 1, label: title + ' en el tiempo' };
-    top += '<div class="chart" data-chart="' + kind + '"></div>';
+  let best = 0;
+  for (const k of act) {
+    if (act.has(addDays(k, -1))) continue;
+    let n = 0, x = k;
+    while (act.has(x)) { n++; x = addDays(x, 1); }
+    if (n > best) best = n;
   }
-  const tip = isW
-    ? 'Pésate una vez por semana, en ayunas, después de ir al baño y en la misma báscula.'
-    : 'Mídete una vez al mes, en la mañana, sin zapatos y con los talones contra la pared. En la tarde mides hasta 1 cm menos por la compresión normal de la columna.';
-  const dId = kind + '-date', vId = kind + '-val';
-  const dv = draft(dId, tk);
-  let soon = '';
-  if (!isW && last) {
-    const since = diffDays(last.date, dv || tk);
-    if (since >= 0 && since < 28) soon = '<p class="hint warn-t">Tu última medición fue hace ' + since + (since === 1 ? ' día' : ' días') + '. El hueso cambia en meses: la próxima es el ' + fmtDay(addDays(last.date, 28)) + '.</p>';
-  }
-  const rows = list.slice().reverse().map((m, i, arr) => {
-    const p = arr[i + 1];
-    const dd = p ? Number(m[field]) - Number(p[field]) : null;
-    const tag = 'm:' + m.id + ':' + field;
-    const armed = S.confirmDel === tag;
-    return '<div class="hrow"><span class="h-date">' + fmtShort(m.date) + '</span><span class="h-val">' + fmtNum(m[field], 1, 1) + ' ' + unit + '</span><span class="h-delta">' +
-      (dd == null ? '' : (dd > 0 ? '+' : dd < 0 ? '−' : '±') + fmtNum(Math.abs(dd), 1, 1)) + '</span>' +
-      '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="del-' + kind + '-' + m.id + '" data-act="m-del" data-id="' + esc(m.id) + '" data-field="' + field + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
-  }).join('');
-  const hist = list.length ? '<details class="hist" data-hist="' + kind + '"' + (S.openHist === kind ? ' open' : '') + '><summary>Historial (' + list.length + ')</summary>' + rows + '</details>' : '';
-  return '<section class="card" id="card-' + kind + '"><div class="card-h"><h2>' + title + '</h2>' + (isW ? '<span class="meta">1 vez por semana</span>' : '<span class="meta">1 vez al mes</span>') + '</div>' + top +
-    '<p class="hint">' + tip + '</p>' +
-    '<form class="form" data-form="' + kind + '" novalidate><div class="grid2">' +
-      '<div class="field"><label class="lbl" for="' + dId + '">Fecha</label><input type="date" id="' + dId + '" data-draft max="' + tk + '" value="' + esc(dv) + '"></div>' +
-      '<div class="field"><label class="lbl" for="' + vId + '">' + title + ' (' + unit + ')</label><input type="text" inputmode="decimal" id="' + vId + '" data-draft value="' + esc(draft(vId, '')) + '"></div>' +
-    '</div>' + soon + '<p class="form-err">' + esc(S.formErr[kind] || '') + '</p>' +
-    '<button type="submit" class="btn" id="' + kind + '-save"' + ro() + '>' + (isW ? 'Guardar peso' : 'Guardar estatura') + '</button></form>' + hist + '</section>';
+  return { best, cur: gCurStreak(), water: water.size, habits, exDays, logged };
 }

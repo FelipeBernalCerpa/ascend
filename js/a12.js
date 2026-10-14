@@ -1,4 +1,169 @@
 'use strict';
+function renderProgreso() {
+  const root = $('#view-progreso');
+  if (!root) return;
+  S.charts = {};
+  swap(root, achievementsHTML() + anaCardHTML('gen') + weekHTML() + averagesHTML() + nutri7HTML() + measureHTML('weight') + compHTML() + bmiHTML() + measureHTML('height'));
+  drawCharts(root);
+}
+
+/* ---------- SALUD ---------- */
+function labsHTML() {
+  let body;
+  if (!S.loaded.labs) body = '<p class="empty">Cargando tus exámenes…</p>';
+  else if (!S.labs.length) body = '<p class="empty">Aún no hay exámenes. Agrega el primero abajo.</p>';
+  else {
+    const groups = new Map();
+    for (const l of S.labs.slice().sort(byDate)) { const g = labGroupKey(l); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(l); }
+    const idx = g => { const i = LAB_TYPES.findIndex(t => t.k === g.split(':')[0]); return i < 0 ? 99 : i; };
+    const keys = Array.from(groups.keys()).sort((a, b) => idx(a) - idx(b) || a.localeCompare(b));
+    body = '<div class="labs">' + keys.map((g, gi) => {
+      const arr = groups.get(g), last = arr[arr.length - 1], st = labStatus(last), open = S.openLab === g, name = labName(last);
+      let detail = '';
+      if (open) {
+        const range = rangeShort(last);
+        const pts = arr.filter(l => hasNum(l.value)).map(l => ({ x: parseKey(l.date).getTime(), y: Number(l.value) }));
+        if (pts.length >= 2) S.charts['lab' + gi] = { points: pts, unit: last.unit || '', dec: 2, band: { low: hasNum(last.low) ? Number(last.low) : null, high: hasNum(last.high) ? Number(last.high) : null }, label: name };
+        detail = '<div class="lab-detail">' + (range ? '<p class="hint">Referencia de tu laboratorio: ' + esc(range) + '</p>' : '') +
+          (pts.length >= 2 ? '<div class="chart" data-chart="lab' + gi + '"></div>' : '') +
+          arr.slice().reverse().map(l => {
+            const tag = 'l:' + l.id, armed = S.confirmDel === tag, s2 = labStatus(l);
+            return '<div class="hrow"><span class="h-date">' + fmtShort(l.date) + '</span><span class="h-val">' + fmtNum(l.value) + ' ' + esc(l.unit || '') + (l.note ? '<small>' + esc(l.note) + '</small>' : '') + '</span>' +
+              '<span class="h-delta">' + (s2 ? '<span class="pill ' + s2[0] + '">' + s2[1] + '</span>' : '') + '</span>' +
+              '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="del-lab-' + l.id + '" data-act="lab-del" data-id="' + esc(l.id) + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
+          }).join('') + '</div>';
+      }
+      return '<div class="lab"><button type="button" class="lab-row" id="labg-' + gi + '" data-act="lab-open" data-g="' + esc(g) + '" aria-expanded="' + open + '">' +
+        '<span class="lab-name">' + esc(name) + '<small>' + fmtShort(last.date) + (arr.length > 1 ? ' · ' + arr.length + ' resultados' : '') + '</small></span>' +
+        '<span class="lab-val">' + fmtNum(last.value) + '<small>' + esc(last.unit || '') + '</small></span>' +
+        (st ? '<span class="pill ' + st[0] + '">' + st[1] + '</span>' : '<span></span>') + '</button>' + detail + '</div>';
+    }).join('') + '</div>';
+  }
+  const hasProt = S.labs.some(l => l.key === 'proteinuria');
+  return '<section class="card" id="card-labs"><div class="card-h"><h2>Exámenes</h2><span class="meta">Toca uno para ver su historia</span></div>' + body +
+    labFormHTML() + '</section>';
+}
+function labFormHTML() {
+  const tk = todayKey();
+  const type = draft('lab-type', 'glucosa');
+  const def = labDefaults(type, draft('lab-name', ''));
+  return '<form class="form" data-form="lab" novalidate><h3 class="form-t">Agregar resultado</h3>' +
+    '<div class="grid2">' +
+      '<div class="field"><label class="lbl" for="lab-type">Examen</label><select id="lab-type" data-draft>' + LAB_TYPES.map(t => '<option value="' + t.k + '"' + (t.k === type ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label class="lbl" for="lab-date">Fecha</label><input type="date" id="lab-date" data-draft max="' + tk + '" value="' + esc(draft('lab-date', tk)) + '"></div>' +
+    '</div>' +
+    (type === 'otro' ? '<div class="field"><label class="lbl" for="lab-name">Nombre del examen</label><input type="text" id="lab-name" data-draft value="' + esc(draft('lab-name', '')) + '"></div>' : '') +
+    '<div class="grid2">' +
+      '<div class="field"><label class="lbl" for="lab-value">Resultado</label><input type="text" inputmode="decimal" id="lab-value" data-draft value="' + esc(draft('lab-value', '')) + '"></div>' +
+      '<div class="field"><label class="lbl" for="lab-unit">Unidad</label><input type="text" id="lab-unit" data-draft value="' + esc(draft('lab-unit', def.unit)) + '"></div>' +
+    '</div>' +
+    '<div class="grid2">' +
+      '<div class="field"><label class="lbl" for="lab-low">Referencia mínima</label><input type="text" inputmode="decimal" id="lab-low" data-draft value="' + esc(draft('lab-low', def.low)) + '"></div>' +
+      '<div class="field"><label class="lbl" for="lab-high">Referencia máxima</label><input type="text" inputmode="decimal" id="lab-high" data-draft value="' + esc(draft('lab-high', def.high)) + '"></div>' +
+    '</div>' +
+    '<p class="hint">Copia la referencia que trae tu examen. Si no trae, deja esos campos vacíos.</p>' +
+    '<div class="field"><label class="lbl" for="lab-note">Nota</label><input type="text" id="lab-note" data-draft value="' + esc(draft('lab-note', '')) + '"></div>' +
+    '<p class="form-err">' + esc(S.formErr.lab || '') + '</p>' +
+    '<button type="submit" class="btn" id="lab-save"' + ro() + '>Guardar resultado</button></form>';
+}
+function qHTML(q) {
+  const tag = 'q:' + q.id, armed = S.confirmDel === tag;
+  return '<div class="q' + (q.done ? ' done' : '') + '">' +
+    '<button type="button" class="qchk" id="qc-' + q.id + '" data-act="q-toggle" data-id="' + esc(q.id) + '" aria-pressed="' + !!q.done + '" aria-label="' + (q.done ? 'Marcar como pendiente' : 'Marcar como resuelta') + '"' + ro() + '></button>' +
+    '<div class="q-main"><p class="q-text">' + esc(q.text) + '</p>' +
+      (q.done ? '<label class="lbl sr" for="qa-' + q.id + '">Respuesta</label><textarea id="qa-' + q.id + '" data-q-ans="' + esc(q.id) + '" rows="2" placeholder="Qué te respondieron"' + roText() + '>' + esc(q.answer || '') + '</textarea>' : '') +
+    '</div>' +
+    '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="qd-' + q.id + '" data-act="q-del" data-id="' + esc(q.id) + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
+}
+function questionsHTML() {
+  let body;
+  if (!S.loaded.questions) body = '<p class="empty">Cargando tus preguntas…</p>';
+  else if (!S.questions.length) body = '<p class="empty">Aún no hay preguntas. Escribe la primera abajo.</p>';
+  else {
+    body = DOCTORS.map(d => {
+      const qs = S.questions.filter(q => (q.doctor || 'otro') === d.k).sort((a, b) => ((!!a.done) - (!!b.done)) || byCreated(a, b));
+      if (!qs.length) return '';
+      const pend = qs.filter(q => !q.done).length;
+      return '<div class="qgroup"><h3 class="qg-t">' + d.label + '<span>' + (pend ? pend + (pend === 1 ? ' pendiente' : ' pendientes') : 'Todo resuelto') + '</span></h3>' + qs.map(qHTML).join('') + '</div>';
+    }).join('');
+  }
+  const qd = draft('q-doc', 'general');
+  return '<section class="card" id="card-q"><div class="card-h"><h2>Preguntas para el médico</h2></div>' + body +
+    '<form class="form" data-form="q" novalidate><h3 class="form-t">Nueva pregunta</h3>' +
+      '<div class="field"><label class="lbl" for="q-new">Pregunta</label><textarea id="q-new" data-draft rows="2">' + esc(draft('q-new', '')) + '</textarea></div>' +
+      '<div class="field"><label class="lbl" for="q-doc">Para</label><select id="q-doc" data-draft>' + DOCTORS.map(d => '<option value="' + d.k + '"' + (d.k === qd ? ' selected' : '') + '>' + d.label + '</option>').join('') + '</select></div>' +
+      '<p class="form-err">' + esc(S.formErr.q || '') + '</p>' +
+      '<button type="submit" class="btn" id="q-save"' + ro() + '>Agregar pregunta</button>' +
+    '</form></section>';
+}
+function summaryHTML() {
+  return '<section class="card" id="card-sum"><div class="card-h"><h2>Resumen para la cita</h2></div>' +
+    '<p class="prose">Junta los últimos 30 días, tus mediciones, exámenes, medicamentos y preguntas pendientes en un texto para mostrar o copiar.</p>' +
+    '<div class="row"><button type="button" class="btn" id="sum-build" data-act="sum-build">' + (S.summary ? 'Actualizar resumen' : 'Armar resumen') + '</button>' +
+    (S.summary ? '<button type="button" class="btn quiet" id="sum-copy" data-act="sum-copy">Copiar</button>' : '') + '</div>' +
+    (S.summary ? '<label class="lbl sr" for="sum-out">Resumen</label><textarea id="sum-out" class="sum-out" rows="16" readonly>' + esc(S.summary) + '</textarea>' + (S.copied ? '<p class="hint ok-t">Copiado.</p>' : '') : '') +
+  '</section>';
+}
+function buildSummary() {
+  const tk = todayKey(), L = [];
+  L.push('Resumen para la cita · ' + fmtDate(tk));
+  let days = 0, doses = 0, taken = 0, skipped = 0, sN = 0, sSum = 0, wN = 0, wSum = 0;
+  for (let i = 0; i < 30; i++) {
+    const k = addDays(tk, -i), d = S.days[k];
+    if (!d) continue;
+    days++;
+    const ds = dosesFor(k);
+    doses += ds.length;
+    for (const x of ds) { const r = d.meds && d.meds[x.key]; if (r && r.s === 'taken') taken++; else if (r && r.s === 'skipped') skipped++; }
+    const h = sleepHours(d.sleep); if (h != null) { sN++; sSum += h; }
+    const w = sum(d.water); if (w > 0) { wN++; wSum += w; }
+  }
+  L.push('');
+  L.push('Últimos 30 días (' + days + (days === 1 ? ' día' : ' días') + ' con registro)');
+  if (doses) L.push('· Medicamentos: ' + taken + ' de ' + doses + ' tomas marcadas como tomadas (' + Math.round(taken / doses * 100) + ' %). Saltadas: ' + skipped + '.');
+  if (sN) L.push('· Sueño promedio: ' + fmtNum(sSum / sN, 1) + ' h (' + sN + ' noches).');
+  if (wN) L.push('· Agua promedio: ' + fmtInt(wSum / wN) + ' ml al día (' + wN + ' días).');
+  const rs = statsRange(30);
+  if (rs.fN) L.push('· Alimentación registrada (' + rs.fN + (rs.fN === 1 ? ' día' : ' días') + '), promedio por día: ' + fmtInt(rs.nut.kcal / rs.fN) + ' kcal; proteína ' + fmtNut('p', rs.nut.p / rs.fN) + ' g; grasas ' + fmtNut('f', rs.nut.f / rs.fN) + ' g (saturadas ' + fmtNut('sf', rs.nut.sf / rs.fN) + ' g); carbohidratos ' + fmtNut('c', rs.nut.c / rs.fN) + ' g; azúcar ' + fmtNut('s', rs.nut.s / rs.fN) + ' g; fibra ' + fmtNut('fi', rs.nut.fi / rs.fN) + ' g; sodio ' + fmtInt(rs.nut.na / rs.fN) + ' mg.');
+  if (rs.stN) L.push('· Pasos promedio: ' + fmtInt(rs.stSum / rs.stN) + ' al día (' + rs.stN + (rs.stN === 1 ? ' día' : ' días') + ').');
+  if (rs.ex) L.push('· Días con ejercicio: ' + rs.ex + (rs.intense ? ' (' + rs.intense + ' con cardio intenso)' : '') + '.');
+  if (!days) L.push('· Aún no hay días registrados.');
+  const ms = [['weight', 'Peso', 'kg'], ['height', 'Estatura', 'cm']];
+  const mLines = [];
+  for (const [field, label, unit] of ms) {
+    const list = S.measures.filter(m => hasNum(m[field])).sort(byDate);
+    const a = list[list.length - 1], b = list[list.length - 2];
+    if (a) mLines.push(label + ': ' + fmtNum(a[field], 1, 1) + ' ' + unit + ' (' + fmtDate(a.date) + ')' + (b ? '. Anterior: ' + fmtNum(b[field], 1, 1) + ' ' + unit + ' (' + fmtDate(b.date) + ')' : '') + '.');
+  }
+  const bs = bmiSeries();
+  if (bs.length) { const bb = bs[bs.length - 1]; mLines.push('IMC: ' + fmtNum(bb.bmi, 1, 1) + ' (' + fmtDate(bb.date) + ').'); }
+  const fats = S.measures.filter(m => hasNum(m.fat)).sort(byDate);
+  if (fats.length) { const f = fats[fats.length - 1]; mLines.push('Grasa corporal: ' + fmtNum(f.fat, 1, 1) + ' % (' + fmtDate(f.date) + ').'); }
+  const mus = S.measures.filter(m => hasNum(m.muscle)).sort(byDate);
+  if (mus.length) { const f = mus[mus.length - 1]; mLines.push('Masa muscular: ' + fmtNum(f.muscle, 1, 1) + ' kg (' + fmtDate(f.date) + ').'); }
+  if (mLines.length) { L.push(''); L.push('Mediciones'); mLines.forEach(x => L.push('· ' + x)); }  const groups = new Map();
+  for (const l of S.labs.slice().sort(byDate)) groups.set(labGroupKey(l), l);
+  if (groups.size) {
+    L.push(''); L.push('Últimos exámenes');
+    for (const l of groups.values()) { const r = rangeShort(l); L.push('· ' + labName(l) + ': ' + fmtNum(l.value) + (l.unit ? ' ' + l.unit : '') + ' (' + fmtDate(l.date) + ')' + (r ? ', referencia ' + r : '') + '.'); }
+  }
+  const active = S.meds.filter(m => m.active);
+  if (active.length) {
+    L.push(''); L.push('Medicamentos actuales');
+    for (const m of active) L.push('· ' + (m.name || 'Sin nombre') + (m.dose ? ' ' + m.dose : '') + ': ' + medSchedText(m) + '.');
+  }
+  const pend = S.questions.filter(q => !q.done);
+  if (pend.length) {
+    L.push(''); L.push('Preguntas pendientes');
+    for (const d of DOCTORS) {
+      const qs = pend.filter(q => (q.doctor || 'otro') === d.k).sort(byCreated);
+      if (!qs.length) continue;
+      L.push(d.label + ':');
+      for (const q of qs) L.push('· ' + q.text);
+    }
+  }
+  return L.join('\n');
+}
 function renderSalud() {
   const root = $('#view-salud');
   if (!root) return;
@@ -62,12 +227,14 @@ function renderAjustes() {
   ).join('');
   const wipeArmed = S.confirmDel === 'wipe';
   swap(root,
+    appSettingsCardHTML() +
+    (medsOn() ?
     '<section class="card" id="card-medsed"><div class="card-h"><h2>Medicamentos</h2><span class="meta">' + S.meds.filter(m => m.active).length + ' activos</span></div>' +
       (newDraft ? '<div class="med editing new">' + medEditorHTML() + '</div>'
         : '<button type="button" class="btn add-top" id="med-new" data-act="med-new"' + (S.readonly || !S.medsLoaded ? ' disabled' : '') + '>Agregar medicamento</button>') +
       '<div class="meds">' + medsList + '</div>' +
       '<p class="hint">Copia nombre, dosis y horario tal como vienen en tu fórmula. Si un médico cambia algo, actualízalo aquí el mismo día.</p></section>' +
-    '<section class="card"><div class="card-h"><h2>Horarios de tomas</h2></div><div class="slots-ed">' + slotsHTML + '</div></section>' +
+    '<section class="card"><div class="card-h"><h2>Horarios de tomas</h2></div><div class="slots-ed">' + slotsHTML + '</div></section>' : '') +
     '<section class="card"><div class="card-h"><h2>Metas</h2></div><div class="grid2">' +
       '<div class="field"><label class="lbl" for="set-water">Agua al día (ml)</label><input type="text" inputmode="numeric" id="set-water" data-set="waterGoal" value="' + esc(s.waterGoal) + '"' + setDis + '></div>' +
       '<div class="field"><label class="lbl" for="set-sleep">Sueño (horas)</label><input type="text" inputmode="decimal" id="set-sleep" data-set="sleepGoal" value="' + esc(fmtNum(s.sleepGoal, 1)) + '"' + setDis + '></div>' +
@@ -85,314 +252,4 @@ function renderAjustes() {
       '<p class="hint">Tus registros se guardan en tu cuenta de Ascend y solo tú los ves. Borrar tus datos no se puede deshacer.</p></section>' +
     '<section class="card" id="card-about"><div class="card-h"><h2>Sobre Ascend</h2></div><p class="prose">Ascend te ayuda a llevar medicamentos, comida, actividad, sueño y salud en un solo lugar. Los horarios y las dosis los define tu equipo médico.</p><details class="privacy"><summary>Privacidad y uso de tus datos</summary>' + privacyInner() + '</details></section>'
   );
-}
-function openNewMed() {
-  if (S.readonly || !S.medsLoaded) return;
-  S.medDraft = { id: null, name: '', dose: '', note: '', slots: ['manana'], days: ALL_DAYS.slice(), active: true };
-  S.formErr.med = '';
-  S.confirmDel = null;
-  renderAjustes();
-  focusEl('md-name');
-}
-function focusEl(id) {
-  const f = document.getElementById(id);
-  if (!f) return;
-  try { f.focus({ preventScroll: true }); f.scrollIntoView({ block: 'center' }); } catch (e) {}
-}
-function saveMedDraft() {
-  const d = S.medDraft;
-  if (!d || S.readonly) return;
-  for (const f of ['name', 'dose', 'note']) { const el = document.getElementById('md-' + f); if (el) d[f] = el.value; }
-  const name = String(d.name || '').trim();
-  let err = '';
-  if (!name) err = 'Escribe el nombre del medicamento.';
-  else if (!(d.slots || []).length) err = 'Elige al menos un horario.';
-  else if (!(d.days || []).length) err = 'Elige al menos un día.';
-  S.formErr.med = err;
-  if (err) { renderAjustes(); return; }
-  const item = { id: d.id || uid(), name, dose: String(d.dose || '').trim(), note: String(d.note || '').trim(), slots: d.slots.slice(), days: d.days.slice(), active: !!d.active };
-  const i = S.meds.findIndex(m => m.id === item.id);
-  if (i >= 0) S.meds[i] = item; else S.meds.push(item);
-  S.medDraft = null;
-  saveMeds();
-  renderAjustes();
-}
-
-/* ---------- navegación ---------- */
-function renderActive() {
-  const t = S.tab;
-  if (t === 'hoy') renderHoy();
-  else if (t === 'progreso') renderProgreso();
-  else if (t === 'salud') renderSalud();
-  else if (t === 'guia') renderGuia();
-  else if (t === 'ajustes') renderAjustes();
-  else if (t === 'habitos') renderHabitos();
-}
-function setTab(t) {
-  if (S.sheet) closeSheet();
-  if (['hoy', 'progreso', 'habitos', 'salud', 'guia', 'ajustes'].indexOf(t) < 0) t = 'hoy';
-  S.tab = t;
-  S.confirmDel = null;
-  for (const v of $$('.view')) v.hidden = v.dataset.view !== t;
-  for (const b of $$('.tab')) { if (b.dataset.tab === t) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); }
-  renderActive();
-  lsSet(LS_TAB, t);
-  try { window.scrollTo(0, 0); } catch (e) {}
-}
-function ensureDay() { /* al entrar se cargan todos los días de la cuenta */ }
-function confirmOrDo(tag, fn, rerender) {
-  if (S.readonly) return;
-  clearTimeout(S.cdT);
-  if (S.confirmDel === tag) { S.confirmDel = null; fn(); rerender(); return; }
-  S.confirmDel = tag;
-  rerender();
-  S.cdT = setTimeout(() => { if (S.confirmDel === tag) { S.confirmDel = null; rerender(); } }, 4000);
-}
-
-/* ---------- acciones ---------- */
-function doseAction(op, key, hm, btnEl) {
-  const k = S.viewKey;
-  const hadFocus = document.activeElement === btnEl;
-  const ok = mutDay(k, d => {
-    d.meds = Object.assign({}, d.meds);
-    if (op === 'undo') delete d.meds[key];
-    else if (op === 'take') d.meds[key] = { s: 'taken', at: k === todayKey() ? Date.now() : atMin(k, hm2min(hm)).getTime() };
-    else if (op === 'had') d.meds[key] = { s: 'taken', at: atMin(k, hm2min(hm)).getTime(), late: true };
-    else if (op === 'skip') d.meds[key] = { s: 'skipped', at: Date.now() };
-  });
-  if (!ok) return;
-  renderHoy(['meds', 'meters']);
-  if (hadFocus && btnEl && btnEl.id) {
-    const base = btnEl.id.replace(/-(take|had|skip|undo)$/, '');
-    const next = document.getElementById(base + (op === 'undo' ? '-take' : '-undo')) || document.getElementById(base + '-skip');
-    if (next) { try { next.focus({ preventScroll: true }); } catch (e) {} }
-  }
-}
-function mutMed(id, fn) {
-  if (S.readonly || !S.medsLoaded) return;
-  const m = S.meds.find(x => x.id === id);
-  if (!m) return;
-  fn(m);
-  saveMeds();
-  renderAjustes();
-}
-function saveMeds() { saver.queue('config/meds', { items: clone(S.meds) }); }
-function saveSettings() { if (S.loaded.settings) saver.queue('config/settings', clone(S.settings), 700); }
-function delMeasure(id, fields) {
-  const m = S.measures.find(x => x.id === id);
-  if (!m) return;
-  for (const f of fields) delete m[f];
-  if (MEASURE_FIELDS.some(f => hasNum(m[f]))) putDoc('measures/' + id, strip(m));
-  else {
-    S.measures = S.measures.filter(x => x.id !== id);
-    delDoc('measures/' + id);
-  }
-}
-function submitComp(form) {
-  const date = ($('#comp-date', form) || {}).value || '';
-  const fatS = (($('#comp-fat', form) || {}).value || '').trim();
-  const musS = (($('#comp-muscle', form) || {}).value || '').trim();
-  const fat = parseNum(fatS), mus = parseNum(musS);
-  let err = '';
-  if (!date || date > todayKey()) err = 'Elige una fecha válida.';
-  else if (!fatS && !musS) err = 'Escribe la grasa, la masa muscular o las dos.';
-  else if (fatS && (!isFinite(fat) || fat < 2 || fat > 60)) err = 'La grasa va en porcentaje, entre 2 y 60.';
-  else if (musS && (!isFinite(mus) || mus < 5 || mus > 100)) err = 'La masa muscular va en kilos, entre 5 y 100.';
-  S.formErr.comp = err;
-  if (err || !S.loaded.measures) { renderProgreso(); return; }
-  const data = { date, createdAt: Date.now() };
-  if (fatS) data.fat = Math.round(fat * 10) / 10;
-  if (musS) data.muscle = Math.round(mus * 10) / 10;
-  const id = store.newId('measures');
-  S.measures.push(Object.assign({ id }, data));
-  S.measures.sort(byDate);
-  delete S.drafts['comp-fat'];
-  delete S.drafts['comp-muscle'];
-  renderProgreso();
-  putDoc('measures/' + id, data);
-}
-function saveShop() { saver.queue('config/shopping', { checked: clone(S.shopping), custom: clone(S.shopCustom || []) }); }
-function submitShop(form) {
-  const label = ((($('#shop-new', form) || {}).value) || '').trim().slice(0, 80);
-  S.formErr.shop = label ? '' : 'Escribe el producto.';
-  if (!label || !S.loaded.shopping) { renderGuia(); return; }
-  S.shopCustom = (S.shopCustom || []).concat({ k: 'c-' + uid(), label });
-  delete S.drafts['shop-new'];
-  saveShop();
-  renderGuia();
-  const f = document.getElementById('shop-new');
-  if (f) { try { f.focus({ preventScroll: true }); } catch (e) {} }
-}
-function submitMeasure(kind, form) {
-  const field = kind;
-  const date = ($('#' + kind + '-date', form) || {}).value || '';
-  const n = parseNum(($('#' + kind + '-val', form) || {}).value);
-  const lim = field === 'weight' ? [20, 200] : [100, 230];
-  let err = '';
-  if (!date || date > todayKey()) err = 'Elige una fecha válida.';
-  else if (!isFinite(n) || n < lim[0] || n > lim[1]) err = field === 'weight' ? 'Escribe el peso en kilos, entre 20 y 200.' : 'Escribe la estatura en centímetros, entre 100 y 230.';
-  S.formErr[kind] = err;
-  if (err || !S.loaded.measures) { renderProgreso(); return; }
-  const data = { date, createdAt: Date.now() };
-  data[field] = Math.round(n * 10) / 10;
-  const id = store.newId('measures');
-  S.measures.push(Object.assign({ id }, data));
-  S.measures.sort(byDate);
-  delete S.drafts[kind + '-val'];
-  renderProgreso();
-  putDoc('measures/' + id, data);
-}
-function submitLab(form) {
-  const v = id => (($('#' + id, form) || {}).value || '');
-  const type = v('lab-type') || 'otro';
-  const date = v('lab-date');
-  const val = parseNum(v('lab-value'));
-  const unit = v('lab-unit').trim();
-  const low = parseNum(v('lab-low')), high = parseNum(v('lab-high'));
-  const note = v('lab-note').trim();
-  const name = type === 'otro' ? v('lab-name').trim() : LAB_BY[type].name;
-  let err = '';
-  if (!date || date > todayKey()) err = 'Elige una fecha válida.';
-  else if (!isFinite(val)) err = 'Escribe el resultado en número.';
-  else if (type === 'otro' && !name) err = 'Escribe el nombre del examen.';
-  else if ((v('lab-low').trim() && !isFinite(low)) || (v('lab-high').trim() && !isFinite(high))) err = 'La referencia debe ser un número.';
-  S.formErr.lab = err;
-  if (err || !S.loaded.labs) { renderSalud(); return; }
-  const data = { key: type, name, date, value: val, unit, low: isFinite(low) ? low : null, high: isFinite(high) ? high : null, note, createdAt: Date.now() };
-  const id = store.newId('labs');
-  S.labs.push(Object.assign({ id }, data));
-  S.labs.sort(byDate);
-  delete S.drafts['lab-value'];
-  delete S.drafts['lab-note'];
-  S.openLab = labGroupKey(data);
-  renderSalud();
-  putDoc('labs/' + id, data);
-}
-function submitQ(form) {
-  const text = (($('#q-new', form) || {}).value || '').trim();
-  const doctor = (($('#q-doc', form) || {}).value) || 'otro';
-  S.formErr.q = text ? '' : 'Escribe la pregunta.';
-  if (!text || !S.loaded.questions) { renderSalud(); return; }
-  const data = { text, doctor, done: false, answer: '', createdAt: Date.now() };
-  const id = store.newId('questions');
-  S.questions.push(Object.assign({ id }, data));
-  delete S.drafts['q-new'];
-  renderSalud();
-  putDoc('questions/' + id, data);
-}
-
-function onClick(e) {
-  const el = e.target.closest('[data-tab],[data-go],[data-act]');
-  if (!el || el.disabled) return;
-  if (el.dataset.tab) { setTab(el.dataset.tab); return; }
-  if (el.dataset.go) { setTab(el.dataset.go); return; }
-  const act = el.dataset.act, id = el.dataset.id;
-  switch (act) {
-    case 'day': {
-      const nk = addDays(S.viewKey, Number(el.dataset.d) || 0);
-      if (nk > todayKey()) return;
-      S.viewKey = nk; ensureDay(nk); renderHoy();
-      break;
-    }
-    case 'day-today': S.viewKey = todayKey(); renderHoy(); break;
-    case 'goto-day': S.viewKey = el.dataset.day; ensureDay(S.viewKey); setTab('hoy'); break;
-    case 'dose': doseAction(el.dataset.op, el.dataset.key, el.dataset.hm, el); break;
-    case 'water':
-      if (mutDay(S.viewKey, d => { d.water = (d.water || []).concat(Number(el.dataset.ml) || 0); })) renderHoy(['water', 'meters']);
-      break;
-    case 'water-undo':
-      if (mutDay(S.viewKey, d => { d.water = (d.water || []).slice(0, -1); })) renderHoy(['water', 'meters']);
-      break;
-    case 'boost':
-      if (mutDay(S.viewKey, d => { d.boost = Object.assign({}, d.boost); const k = el.dataset.k; if (d.boost[k]) delete d.boost[k]; else d.boost[k] = true; })) renderHoy(['boost', 'meters']);
-      break;
-    case 'feel':
-      if (mutDay(S.viewKey, d => { const f = el.dataset.f, v = Number(el.dataset.v); if (d[f] === v) delete d[f]; else d[f] = v; })) renderHoy(['feel']);
-      break;
-    case 'sleep-fill':
-      if (mutDay(S.viewKey, d => { d.sleep = { bed: S.settings.bedTarget, wake: S.settings.wakeTarget }; })) renderHoy(['sleep', 'meters']);
-      break;
-    case 'm-del': {
-      const fld = el.dataset.field;
-      confirmOrDo('m:' + id + ':' + fld, () => delMeasure(id, fld === 'comp' ? ['fat', 'muscle'] : [fld]), renderProgreso);
-      break;
-    }
-    case 'lab-open': S.openLab = S.openLab === el.dataset.g ? null : el.dataset.g; renderSalud(); break;
-    case 'lab-del': confirmOrDo('l:' + id, () => { S.labs = S.labs.filter(l => l.id !== id); delDoc('labs/' + id); }, renderSalud); break;
-    case 'q-toggle': {
-      if (S.readonly) return;
-      const q = S.questions.find(x => x.id === id);
-      if (!q) return;
-      q.done = !q.done;
-      renderSalud();
-      putDoc('questions/' + id, strip(q));
-      break;
-    }
-    case 'q-del': confirmOrDo('q:' + id, () => { S.questions = S.questions.filter(q => q.id !== id); delDoc('questions/' + id); }, renderSalud); break;
-    case 'sum-build': S.summary = buildSummary(); S.copied = false; renderSalud(); break;
-    case 'sum-copy': copySummary(); break;
-    case 'shop': {
-      if (S.readonly || !S.loaded.shopping) return;
-      const k = el.dataset.k;
-      S.shopping = Object.assign({}, S.shopping);
-      if (S.shopping[k]) delete S.shopping[k]; else S.shopping[k] = true;
-      saveShop();
-      renderGuia();
-      break;
-    }
-    case 'shop-clear':
-      if (S.readonly || !S.loaded.shopping) return;
-      S.shopping = {};
-      saveShop();
-      renderGuia();
-      break;
-    case 'shop-del': {
-      if (S.readonly || !S.loaded.shopping) return;
-      const k = el.dataset.k;
-      S.shopCustom = (S.shopCustom || []).filter(x => x.k !== k);
-      if (S.shopping[k]) { S.shopping = Object.assign({}, S.shopping); delete S.shopping[k]; }
-      saveShop();
-      renderGuia();
-      break;
-    }
-    case 'meds-edit': setTab('ajustes'); break;
-    case 'med-new-go': setTab('ajustes'); openNewMed(); break;
-    case 'med-new': openNewMed(); break;
-    case 'med-edit': {
-      const m = S.meds.find(x => x.id === id);
-      if (!m || S.readonly) return;
-      S.medDraft = clone(m);
-      if (!Array.isArray(S.medDraft.days)) S.medDraft.days = ALL_DAYS.slice();
-      S.formErr.med = '';
-      S.confirmDel = null;
-      renderAjustes();
-      focusEl('md-name');
-      break;
-    }
-    case 'md-slot': {
-      if (!S.medDraft) return;
-      const set = new Set(S.medDraft.slots || []), s = el.dataset.s;
-      if (set.has(s)) set.delete(s); else set.add(s);
-      S.medDraft.slots = SLOT_KEYS.filter(k => set.has(k));
-      renderAjustes();
-      break;
-    }
-    case 'md-day': {
-      if (!S.medDraft) return;
-      const set = new Set(S.medDraft.days || []), n = Number(el.dataset.n);
-      if (set.has(n)) set.delete(n); else set.add(n);
-      S.medDraft.days = ALL_DAYS.filter(x => set.has(x));
-      renderAjustes();
-      break;
-    }
-    case 'md-active': if (S.medDraft) { S.medDraft.active = !S.medDraft.active; renderAjustes(); } break;
-    case 'md-save': saveMedDraft(); break;
-    case 'md-cancel': S.medDraft = null; S.formErr.med = ''; renderAjustes(); break;
-    case 'med-del': confirmOrDo('med:' + id, () => { S.meds = S.meds.filter(m => m.id !== id); if (S.medDraft && S.medDraft.id === id) S.medDraft = null; saveMeds(); }, renderAjustes); break;
-    case 'logout': logout(); break;
-    case 'export': exportData(); break;
-    case 'wipe': confirmOrDo('wipe', () => { wipeData(); }, renderAjustes); break;
-    case 'reload': location.reload(); break;
-    default: extClick(act, el, id); break;
-  }
 }

@@ -1,4 +1,202 @@
 'use strict';
+function shPlanHTML(st) { return st.step === 'result' && st.res ? shPlanResultHTML(st) : shPlanFormHTML(st); }
+function submitPlanForm() {
+  const st = S.sheet;
+  if (!st || st.kind !== 'plan') return;
+  for (const f of ['birth', 'height', 'weight']) { const el = document.getElementById('pl-' + f); if (el) st.in[f] = el.value; }
+  const r = computePlan(st.in);
+  if (r.err) { sheetErr(st, r.err); return; }
+  st.res = r;
+  goStep('result');
+}
+function savePlan() {
+  const st = S.sheet;
+  if (!st || st.kind !== 'plan' || !st.res || S.readonly) return;
+  if (!S.loaded.profile || !S.loaded.settings || !S.loaded.measures) { sheetErr(st, 'Todavía se están cargando tus datos. Intenta en unos segundos.'); return; }
+  const r = st.res, i = st.in, tk = todayKey();
+  S.profile = Object.assign({}, S.profile, {
+    sex: i.sex, birth: i.birth, goal: i.goal, pace: i.pace, activity: i.activity,
+    diet: i.diet.slice(), cond: i.cond.slice(), onboarded: true,
+    plan: { at: tk, maint: r.maint, kcal: r.kcal == null ? null : r.kcal }
+  });
+  saveProfile();
+  const w = r1(parseNum(i.weight)), h = r1(parseNum(i.height));
+  if (latestOn('weight', tk) !== w || latestOn('height', tk) !== h) {
+    const ex = S.measures.find(m => m.date === tk);
+    if (ex) { ex.weight = w; ex.height = h; putDoc('measures/' + ex.id, strip(ex)); }
+    else {
+      const id = store.newId('measures'), data = { date: tk, weight: w, height: h, createdAt: Date.now() };
+      S.measures.push(Object.assign({ id }, data));
+      S.measures.sort(byDate);
+      putDoc('measures/' + id, data);
+    }
+  }
+  const nutri = Object.assign({}, S.settings.nutri);
+  for (const k of NK) {
+    if (r[k] != null) nutri[k] = r[k];
+    else if ((r.clear || []).indexOf(k) >= 0) delete nutri[k];
+  }
+  S.settings.nutri = nutri;
+  if (r.water != null) S.settings.waterGoal = r.water;
+  S.settings.sleepGoal = r.sleep;
+  S.settings.stepGoal = r.steps;
+  saveSettings();
+  closeSheet();
+  if (S.tab !== 'guia') setTab('guia'); else renderGuia();
+  toast('Plan guardado. Tus metas ya aparecen en Hoy.');
+}
+
+/* ---------- pestaña Plan ---------- */
+function planCardHTML() {
+  const p = prof(), dis = S.readonly || !S.loaded.profile ? ' disabled' : '';
+  if (!profileGoal()) {
+    return '<section class="card" id="card-plan"><div class="card-h"><h2>Arma tu plan</h2></div>' +
+      '<p class="prose">Responde unas preguntas y Ascend calcula tus metas de calorías, nutrientes, agua, sueño y pasos según tu edad, tu cuerpo y tu objetivo.</p>' +
+      '<button type="button" class="btn" id="plan-start" data-act="plan-open"' + dis + '>Empezar</button></section>';
+  }
+  const s = S.settings, g = s.nutri || {};
+  const v = { water: s.waterGoal, sleep: s.sleepGoal, steps: s.stepGoal || null };
+  for (const k of NK) v[k] = g[k] == null ? null : g[k];
+  const rows = NUTRIENTS.filter(n => v[n.k] != null).map(n => [n.label + ({ meta: '', max: ' · máx.', min: ' · mín.' })[goalKind(n.k)], fmtNut(n.k, v[n.k]) + ' ' + n.unit]);
+  rows.push(['Agua', fmtInt(v.water) + ' ml'], ['Sueño', fmtNum(v.sleep, 1) + ' h']);
+  if (v.steps) rows.push(['Pasos', fmtInt(v.steps)]);
+  const extra = [labelsOf(ACTIVITY, [p.activity]).map(x => 'actividad ' + x.toLowerCase()).join(''), labelsOf(DIETS, p.diet).join(', ').toLowerCase()].filter(Boolean).join(' · ');
+  return '<section class="card" id="card-plan"><div class="card-h"><h2>Tu plan</h2><span class="meta">' + esc(goalLabel(p.goal)) + '</span></div>' +
+    (extra ? '<p class="plan-sub">' + esc(extra.charAt(0).toUpperCase() + extra.slice(1)) + (p.plan && p.plan.at ? ' · calculado el ' + fmtShort(p.plan.at) : '') + '</p>' : '') +
+    '<div class="prev-g plan-g">' + rows.map(x => '<span class="pv"><span>' + x[0] + '</span><b>' + x[1] + '</b></span>').join('') + '</div>' +
+    (hasCond('tca') ? '<p class="hint">Sin metas de calorías: tu equipo de salud las define contigo.</p>' : '') +
+    '<div class="row plan-actions"><button type="button" class="btn sm" id="plan-redo" data-act="plan-open"' + dis + '>Recalcular</button><button type="button" class="btn sm quiet" id="plan-adjust" data-go="ajustes">Ajustar a mano</button></div></section>';
+}
+function tipsHTML() {
+  const g = profileGoal(), age = userAge(), teen = age != null && age < 18;
+  const T = [
+    ['Medio plato de verduras', 'En almuerzo y cena: la mitad verdura, un cuarto proteína y un cuarto arroz, papa, plátano o similar.'],
+    ['Agua como bebida principal', 'Gaseosas y jugos con azúcar suman calorías sin llenarte.'],
+    ['Sueño', teen ? 'Entre 8 y 10 horas: a tu edad el cuerpo crece y se recupera durmiendo.' : 'Entre 7 y 9 horas; dormir poco aumenta el hambre al día siguiente.'],
+    ['Movimiento', teen ? '60 minutos de actividad al día, con ejercicio fuerte 3 veces por semana.' : '150 minutos a la semana de actividad moderada y fuerza 2 días.']
+  ];
+  if (g === 'bajar' && !teen) T.push(['Déficit pequeño y constante', 'Entre 0,25 y 0,5 kg por semana se sostiene mejor que una dieta estricta.'], ['Proteína en cada comida', 'Te llena más y cuida el músculo mientras bajas.']);
+  if (g === 'bajar' && teen) T.push(['Hábitos antes que dieta', 'Mientras creces, mejora lo que comes sin restringir calorías; tu pediatra te guía si necesitas bajar.']);
+  if (g === 'subir') T.push(['Grasas buenas para sumar', 'Aceite de oliva, aguacate, frutos secos y mantequilla de maní suben calorías sin llenarte tanto.'], ['Batidos', 'Leche, fruta, avena y mantequilla de maní. Están listos en Hoy → Agregar → Comidas frecuentes.'], ['No te saltes comidas', 'Tres comidas y dos o tres refrigerios al día.']);
+  if (g === 'musculo') T.push(['Fuerza 3 a 4 veces por semana', 'El músculo crece con el entrenamiento; la comida le da el material.'], ['Proteína repartida', 'Tres o cuatro comidas con proteína rinden más que una sola grande.']);
+  if (g === 'mantener') T.push(['Pésate cada semana', 'Si subes o bajas más de 1 kg en un mes sin buscarlo, recalcula tu plan.']);
+  if (teen) T.push(['Nada de suplementos de gimnasio', 'Proteína en polvo, creatina o quemadores, solo si tu médico los indica.']);
+  if (hasDiet('sin_gluten')) T.push(['Busca el sello «sin gluten»', 'En avena, panes, pastas y galletas: la avena común suele contaminarse con trigo.']);
+  if (hasDiet('vegetariana')) T.push(['Proteína vegetal', 'Combina legumbres con cereales y pregunta a tu médico por la vitamina B12.']);
+  if (hasDiet('sin_lactosa')) T.push(['Calcio sin lactosa', 'La leche y el yogur deslactosados conservan el calcio.']);
+  if ((prof().cond || []).length) T.push(['Tu médico va primero', 'Con una condición de salud, las cifras de tu médico mandan sobre las de Ascend.']);
+  if (hasCond('tca')) T.push(['Tu bienestar primero', 'Si registrar comida te genera ansiedad, deja esa parte y usa Ascend para medicamentos, sueño y citas.']);
+  return '<section class="card" id="card-tips"><div class="card-h"><h2>Lo básico</h2></div><ul class="rules">' +
+    T.map(t => '<li><strong>' + esc(t[0]) + '</strong><span>' + esc(t[1]) + '</span></li>').join('') + '</ul></section>';
+}
+function guideCardHTML() {
+  const dis = S.readonly || !S.loaded.guide ? ' disabled' : '';
+  const secs = GUIDE_SECTIONS.map(sec => [sec, guideList(sec.k)]);
+  const any = secs.some(x => x[1].length);
+  const sel = draft('gd-sec', 'rules');
+  return '<section class="card" id="card-guide"><div class="card-h"><h2>Mis indicaciones</h2></div>' +
+    (any ? secs.filter(x => x[1].length).map(([sec, items]) => '<p class="sh-sec">' + esc(sec.label) + '</p><ul class="rules' + (sec.k === 'avoid' ? ' avoid' : '') + '">' +
+      items.map(it => {
+        const tag = 'gd:' + it.id, armed = S.confirmDel === tag;
+        return '<li class="gi"><div class="gi-x"><strong>' + esc(it.t) + '</strong>' + (it.d ? '<span>' + esc(it.d) + '</span>' : '') + '</div>' +
+          '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="gdx-' + esc(it.id) + '" data-act="gd-del" data-sec="' + sec.k + '" data-id="' + esc(it.id) + '"' + dis + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></li>';
+      }).join('') + '</ul>').join('')
+      : '<p class="empty">Anota aquí lo que te indiquen tu médico o tu nutricionista, para tenerlo a mano.</p>') +
+    '<form class="form" data-form="guide" novalidate>' +
+      '<div class="grid2"><div class="field"><label class="lbl" for="gd-sec">Sección</label><select id="gd-sec" data-draft' + dis + '>' + GUIDE_SECTIONS.map(s2 => '<option value="' + s2.k + '"' + (s2.k === sel ? ' selected' : '') + '>' + s2.label + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label class="lbl" for="gd-t">Indicación</label><input type="text" id="gd-t" data-draft maxlength="80" autocomplete="off" value="' + esc(draft('gd-t', '')) + '"' + dis + '></div></div>' +
+      '<div class="field"><label class="lbl" for="gd-d">Detalle (opcional)</label><input type="text" id="gd-d" data-draft maxlength="240" autocomplete="off" value="' + esc(draft('gd-d', '')) + '"' + dis + '></div>' +
+      '<p class="form-err">' + esc(S.formErr.guide || '') + '</p>' +
+      '<button type="submit" class="btn" id="gd-add"' + dis + '>Agregar</button>' +
+    '</form></section>';
+}
+function shopCardHTML() {
+  const checked = S.shopping || {};
+  const base = guideShop(), custom = S.shopCustom || [];
+  const nDone = base.concat(custom).filter(x => checked[x.k]).length, nAll = base.length + custom.length;
+  const dis = S.readonly || !S.loaded.shopping ? ' disabled' : '';
+  const chip = x => '<button type="button" class="chip" id="s-' + esc(x.k) + '" data-act="shop" data-k="' + esc(x.k) + '" aria-pressed="' + !!checked[x.k] + '"' + dis + '><span class="tick"></span><span>' + esc(x.label) + '</span></button>';
+  return '<section class="card" id="card-shop"><div class="card-h"><h2>Lista de compras</h2><span class="meta">' + (nAll ? nDone + ' de ' + nAll : 'Vacía') + '</span></div>' +
+    (nAll ? '<div class="shop">' + base.map(chip).join('') +
+      custom.map(x => '<div class="shop-row">' + chip(x) + '<button type="button" class="xbtn" id="sx-' + esc(x.k) + '" data-act="shop-del" data-k="' + esc(x.k) + '" aria-label="' + esc('Quitar ' + x.label) + '"' + dis + '>Quitar</button></div>').join('') + '</div>' : '') +
+    '<div class="row shop-acts">' + (nDone ? '<button type="button" class="link" id="shop-clear" data-act="shop-clear"' + dis + '>Desmarcar todo</button>' : '') +
+      '<button type="button" class="btn sm quiet" id="shop-suggest" data-act="shop-suggest"' + dis + '>Sugerir según mi plan</button></div>' +
+    '<form class="form" data-form="shop" novalidate><div class="field"><label class="lbl" for="shop-new">Agregar producto</label><div class="add-row"><input type="text" id="shop-new" data-draft maxlength="80" value="' + esc(draft('shop-new', '')) + '"' + (S.readonly ? ' readonly' : '') + '><button type="submit" class="btn" id="shop-add"' + dis + '>Agregar</button></div></div>' +
+    '<p class="form-err">' + esc(S.formErr.shop || '') + '</p></form></section>';
+}
+function shopSuggestions() {
+  const g = profileGoal(), veg = hasDiet('vegetariana'), sg = hasDiet('sin_gluten'), sl = hasDiet('sin_lactosa');
+  const L = ['Frutas enteras para la semana', 'Verduras para almuerzo y cena', 'Huevos', veg ? 'Tofu o queso campesino' : 'Pollo, pescado o carne magra', 'Fríjol, lenteja o garbanzo', 'Arroz, papa, plátano o yuca', sg ? 'Avena certificada sin gluten' : 'Avena en hojuelas', sl ? 'Leche y yogur deslactosados' : 'Leche y yogur natural', 'Frutos secos sin sal', 'Aceite de oliva o de canola'];
+  if (g === 'subir' || g === 'musculo') L.push('Aguacate', 'Mantequilla de maní sin azúcar');
+  if (g === 'subir') L.push(sl ? 'Leche entera deslactosada' : 'Leche entera');
+  if (g === 'bajar') L.push('Verduras para picar entre comidas', 'Aromáticas sin azúcar');
+  if (sg) L.push('Pan o pasta con sello «sin gluten»');
+  return L;
+}
+function suggestShop() {
+  if (S.readonly || !S.loaded.shopping) return;
+  const have = new Set(guideShop().concat(S.shopCustom || []).map(x => norm(x.label)));
+  const add = shopSuggestions().filter(l => !have.has(norm(l))).map(l => ({ k: 'sg-' + norm(l).replace(/ /g, '-').slice(0, 40), label: l }));
+  if (!add.length) { toast('Tu lista ya tiene todo lo sugerido.'); return; }
+  S.shopCustom = (S.shopCustom || []).concat(add).slice(0, MAX_SHOP);
+  saveShop();
+  renderGuia();
+  toast('Agregué ' + add.length + ' productos a tu lista.');
+}
+function renderGuia() {
+  const root = $('#view-guia');
+  if (!root) return;
+  swap(root, planCardHTML() + chatCardHTML() + guideCardHTML() + shopCardHTML() + tipsHTML());
+  const log = $('#chat-log');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+function saveGuide() { if (S.loaded.guide) saver.queue('config/guide', clone(S.guide || {}), 200); }
+function submitGuide(form) {
+  if (S.readonly || !S.loaded.guide) return;
+  const sec = (($('#gd-sec', form) || {}).value) || 'rules';
+  const t = ((($('#gd-t', form) || {}).value) || '').trim().slice(0, 80);
+  const dd = ((($('#gd-d', form) || {}).value) || '').trim().slice(0, 240);
+  S.formErr.guide = '';
+  if (!GUIDE_SECTIONS.some(x => x.k === sec)) return;
+  if (!t) S.formErr.guide = 'Escribe la indicación.';
+  else if (guideList(sec).length >= MAX_GUIDE) S.formErr.guide = 'Esa sección ya tiene ' + MAX_GUIDE + ' indicaciones.';
+  if (S.formErr.guide) { renderGuia(); return; }
+  S.guide = Object.assign({}, S.guide);
+  S.guide[sec] = guideList(sec).concat({ id: uid(), t, d: dd });
+  delete S.drafts['gd-t'];
+  delete S.drafts['gd-d'];
+  S.drafts['gd-sec'] = sec;
+  saveGuide();
+  renderGuia();
+  focusEl('gd-t');
+}
+
+/* ---------- Ajustes: hábitos y privacidad ---------- */
+function saveHabits(items) {
+  S.habits = { items: items.slice(0, MAX_HABITS).map(x => {
+    const o = { k: x.k, label: x.label };
+    for (const f of ['freq', 'times', 'start', 'end', 'remind', 'note', 'createdAt']) if (x[f] != null && x[f] !== '' && x[f] !== 0) o[f] = x[f];
+    if (Array.isArray(x.days) && x.days.length && x.freq === 'days') o.days = x.days.slice();
+    if (o.freq === 'daily') delete o.freq;
+    if (!o.freq || o.freq === 'days') delete o.times;
+    return o;
+  }) };
+  saver.queue('config/habits', clone(S.habits), 200);
+}
+function habitsCardHTML() {
+  const dis = S.readonly || !S.loaded.habits ? ' disabled' : '';
+  const own = !!(S.habits && Array.isArray(S.habits.items));
+  const list = habitsList();
+  return '<section class="card" id="card-habits"><div class="card-h"><h2>Tus hábitos del día</h2><span class="meta">' + (own ? 'Personalizados' : 'Según tu objetivo') + '</span></div>' +
+    (list.length ? '<div class="meds">' + list.map(x => {
+      const tag = 'hb:' + x.k, armed = S.confirmDel === tag;
+      return '<div class="med"><div class="med-info"><span class="med-n">' + esc(x.label) + '</span></div><div class="med-btns"><button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="hbx-' + esc(x.k) + '" data-act="hb-del" data-k="' + esc(x.k) + '"' + dis + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></div></div>';
+    }).join('') + '</div>' : '<p class="empty">Sin hábitos. Agrega los que quieras marcar cada día.</p>') +
+    '<form class="form" data-form="habit" novalidate><div class="field"><label class="lbl" for="hb-new">Nuevo hábito</label><div class="add-row"><input type="text" id="hb-new" data-draft maxlength="60" autocomplete="off" value="' + esc(draft('hb-new', '')) + '"' + dis + '><button type="submit" class="btn" id="hb-add"' + dis + '>Agregar</button></div></div>' +
+    '<p class="form-err">' + esc(S.formErr.habit || '') + '</p></form>' +
+    (own ? '<button type="button" class="link" id="hb-reset" data-act="hb-reset"' + dis + '>Volver a los de mi objetivo</button>' : '') +
+    '<p class="hint">Aparecen en Hoy para marcarlos cada día. Lo que ya marcaste no cambia.</p></section>';
+}
 function submitHabit(form) {
   if (S.readonly || !S.loaded.habits) return;
   const label = ((($('#hb-new', form) || {}).value) || '').trim().slice(0, 60);
@@ -74,222 +272,3 @@ function proposalCheck(pr) {
   }
   return { out, skipped: hasCond('tca') ? [] : skipped };
 }
-function proposalHTML(pr, i, applied) {
-  const chk = proposalCheck(pr), keys = Object.keys(chk.out);
-  const rows = keys.map(k => '<span class="pv"><span>' + PROP_LABELS[k][0] + '</span><b>' + (k === 'sleepGoal' ? fmtNum(chk.out[k], 1) : fmtInt(chk.out[k])) + (PROP_LABELS[k][1] ? ' ' + PROP_LABELS[k][1] : '') + '</b></span>').join('');
-  const note = chk.skipped.length ? '<p class="hint">No se aplica en tu caso: ' + esc(chk.skipped.join(', ')) + '.</p>' : '';
-  if (!rows) return note ? '<div class="prop">' + note + '</div>' : '';
-  return '<div class="prop"><p class="sh-sec">Metas propuestas</p><div class="prev-g">' + rows + '</div>' + note +
-    (applied ? '<p class="pill ok">Aplicadas</p>' : '<button type="button" class="btn sm" id="ai-apply-' + i + '" data-act="ai-apply" data-i="' + i + '"' + (S.readonly ? ' disabled' : '') + '>Aplicar a mis metas</button>') + '</div>';
-}
-function chatCardHTML() {
-  const c = S.chat, items = c.items;
-  const dis = S.readonly || !S.loaded.aichat || c.busy ? ' disabled' : '';
-  const armed = S.confirmDel === 'chat-clear';
-  const QUICK = ['Ayúdame a fijar mis metas', '¿Qué como hoy con lo que me falta?', 'Ayúdame con mis hábitos', 'Ideas de desayuno para mi plan'];
-  return '<section class="card" id="card-ai"><div class="card-h"><h2>Asistente</h2><span class="meta">Con IA</span></div>' +
-    (items.length ? '<div class="chat" id="chat-log" aria-live="polite">' + items.map((it, i) => it.role === 'user'
-        ? '<div class="msg me">' + esc(it.text) + '</div>'
-        : '<div class="msg ai">' + fmtAiText(it.text) + (it.prop ? proposalHTML(it.prop, i, it.applied) : '') + (it.habits ? habPropHTML(it.habits, 'chat', i) : '') + '</div>').join('') +
-        (c.busy ? '<div class="msg ai typing">Pensando…</div>' : '') + '</div>'
-      : '<p class="prose">Pregúntale por tus metas, ideas de comidas con lo que te falta hoy o por qué tu peso no cambia. Ve tu plan y tus registros para responderte.</p>' +
-        (c.busy ? '<p class="hint">Pensando…</p>' : '<div class="quick">' + QUICK.map((q, i) => '<button type="button" class="xbtn" id="chat-q' + i + '" data-act="chat-quick" data-q="' + esc(q) + '"' + dis + '>' + esc(q) + '</button>').join('') + '</div>')) +
-    (c.err ? '<p class="form-err" id="chat-err">' + esc(c.err) + '</p>' : '') +
-    '<form class="chat-form" data-form="chat" novalidate><label class="lbl sr" for="chat-in">Tu pregunta</label><textarea id="chat-in" data-draft rows="2" maxlength="1500" placeholder="Escribe tu pregunta…"' + (S.readonly ? ' readonly' : '') + '>' + esc(draft('chat-in', '')) + '</textarea>' +
-    '<button type="submit" class="btn" id="chat-send"' + dis + '>Enviar</button></form>' +
-    '<p class="hint">Responde con IA (Claude): puede equivocarse y no reemplaza a tu médico. Para responder recibe tu mensaje y un resumen de tu plan y tus registros.' + (c.remaining != null ? ' Te quedan ' + c.remaining + ' mensajes hoy.' : '') + '</p>' +
-    (items.length ? '<button type="button" class="link" id="chat-clear" data-act="chat-clear"' + (c.busy ? ' disabled' : '') + '>' + (armed ? 'Toca otra vez para borrar la conversación' : 'Borrar conversación') + '</button>' : '') +
-  '</section>';
-}
-function renderChat() {
-  if (S.tab !== 'guia') return;
-  const el = $('#card-ai');
-  if (!el) return;
-  replaceEl(el, chatCardHTML());
-  const log = $('#chat-log');
-  if (log) log.scrollTop = log.scrollHeight;
-}
-function saveChat() { if (S.loaded.aichat) saver.queue('config/aichat', { items: clone(S.chat.items.slice(-MAX_CHAT)) }, 200); }
-function aiContext() {
-  const p = prof(), tk = todayKey(), L = [];
-  const age = ageOn(p.birth, tk), w = latestOn('weight', tk), h = latestOn('height', tk);
-  L.push('Fecha de hoy: ' + fmtDate(tk));
-  L.push('Edad: ' + (age != null ? age + ' años' : 'sin dato') + '. Sexo: ' + (p.sex === 'm' ? 'hombre' : p.sex === 'f' ? 'mujer' : 'sin dato') + '.');
-  L.push('Estatura: ' + (h ? fmtNum(h, 1) + ' cm' : 'sin dato') + '. Peso: ' + (w ? fmtNum(w, 1) + ' kg' : 'sin dato') + '.');
-  const ws = S.measures.filter(m => hasNum(m.weight)).sort(byDate).slice(-5);
-  if (ws.length > 1) L.push('Pesos recientes: ' + ws.map(m => fmtShort(m.date) + ' ' + fmtNum(m.weight, 1) + ' kg').join('; ') + '.');
-  L.push('Objetivo: ' + (goalLabel(p.goal) || 'sin definir') + (p.goal && p.goal !== 'mantener' ? ' (ritmo ' + (p.pace || 'suave') + ')' : '') + '. Actividad: ' + ((labelsOf(ACTIVITY, [p.activity])[0] || 'sin dato').toLowerCase()) + '.');
-  L.push('Alimentación: ' + (labelsOf(DIETS, p.diet).join(', ').toLowerCase() || 'sin restricciones') + '. Condiciones de salud: ' + (labelsOf(CONDITIONS, p.cond).join(', ').toLowerCase() || 'ninguna registrada') + '.');
-  const meds = S.meds.filter(m => m.active).map(m => m.name).filter(Boolean);
-  if (meds.length) L.push('Medicamentos activos: ' + meds.join(', ').slice(0, 400) + '.');
-  const s = S.settings, g = s.nutri || {};
-  const gl = NUTRIENTS.filter(n => g[n.k] != null).map(n => n.label.toLowerCase() + ' ' + ({ meta: 'meta', max: 'máximo', min: 'mínimo' })[goalKind(n.k)] + ' ' + fmtNut(n.k, g[n.k]) + ' ' + n.unit);
-  L.push('Metas actuales: ' + (gl.length ? gl.join('; ') : 'sin metas de nutrientes') + '; agua ' + fmtInt(s.waterGoal) + ' ml; sueño ' + fmtNum(s.sleepGoal, 1) + ' h' + (s.stepGoal ? '; pasos ' + fmtInt(s.stepGoal) : '') + '.');
-  const d = getDay(tk), nu = dayNutri(d);
-  if (nu.count) {
-    L.push('Hoy lleva: ' + NUTRIENTS.map(n => n.label.toLowerCase() + ' ' + fmtNut(n.k, nu[n.k]) + ' ' + n.unit).join('; ') + '.');
-    L.push('Comidas de hoy: ' + d.food.slice(0, 25).map(e => mealLabel(e.m) + ': ' + String(e.name || '').slice(0, 60) + ' (' + fmtInt(e.g) + ' ' + unitOf(e.l) + ')').join('; ') + '.');
-  } else L.push('Hoy no ha registrado comida.');
-  const en = energyFor(tk, d);
-  L.push('Hoy: agua ' + fmtInt(sum(d.water)) + ' ml; pasos ' + fmtInt(d.steps || 0) + (Array.isArray(d.acts) && d.acts.length ? '; ejercicio: ' + d.acts.map(a => String(a.name || '').slice(0, 40) + ' ' + a.min + ' min').join(', ') : '') + (en.total != null ? '; gasto estimado ' + fmtInt(r10(en.total)) + ' kcal' : '') + '.');
-  const r = statsRange(7);
-  if (r.fN) L.push('Últimos 7 días (' + r.fN + ' con comida registrada), promedio por día: ' + fmtInt(r.nut.kcal / r.fN) + ' kcal; proteína ' + fmtNut('p', r.nut.p / r.fN) + ' g; grasas ' + fmtNut('f', r.nut.f / r.fN) + ' g; carbohidratos ' + fmtNut('c', r.nut.c / r.fN) + ' g; sodio ' + fmtInt(r.nut.na / r.fN) + ' mg.');
-  if (r.sN) L.push('Sueño promedio 7 días: ' + fmtNum(r.sSum / r.sN, 1) + ' h.');
-  const gi = GUIDE_SECTIONS.map(sec => guideList(sec.k).map(it => sec.label + ': ' + it.t)).flat();
-  if (gi.length) L.push('Indicaciones que guardó de sus médicos: ' + gi.join('; ').slice(0, 1200) + '.');
-  const hl = habs();
-  if (hl.length) L.push('Hábitos: ' + hl.map(h => h.label + ' (' + habFreqText(h).toLowerCase() + (habDone(h, tk) ? ', hecho hoy' : habDueOn(h, tk) ? ', pendiente hoy' : '') + (habStreak(h, tk) ? ', ' + habStreakText(h, habStreak(h, tk)) : '') + ')').join('; ').slice(0, 900) + '.');
-  const rp = S.reminders.filter(r => !r.done && r.due && r.due <= tk);
-  if (rp.length) L.push('Recordatorios para hoy o vencidos: ' + rp.slice(0, 10).map(r => r.t).join('; ').slice(0, 400) + '.');
-  return L.join('\n').slice(0, 6000);
-}
-function chatErrText(res, data) {
-  if (!res) return 'Sin conexión. Revisa tu internet e intenta de nuevo.';
-  const e = data && data.error;
-  if (res.status === 503) return 'El asistente con IA todavía no está activo en esta app.';
-  if (res.status === 401) return 'Tu sesión venció. Cierra sesión y vuelve a entrar.';
-  if (res.status === 429) return e === 'limit' ? 'Llegaste al límite de ' + (data.limit || '') + ' mensajes de hoy. Vuelve mañana.' : 'El asistente está muy ocupado hoy. Intenta más tarde.';
-  if (res.status === 400 || res.status === 413) return 'No pude enviar ese mensaje: es muy largo o está vacío.';
-  return 'No se pudo responder ahora. Intenta de nuevo en un momento.';
-}
-async function chatSend(text) {
-  text = String(text || '').trim().slice(0, 1500);
-  const c = S.chat;
-  if (!text || c.busy || S.readonly || !S.loaded.aichat) return;
-  c.items.push({ role: 'user', text, at: Date.now() });
-  c.busy = true;
-  c.err = '';
-  delete S.drafts['chat-in'];
-  renderChat();
-  let res = null, data = null;
-  try {
-    const sess = await sb.auth.getSession();
-    const tok = sess && sess.data && sess.data.session ? sess.data.session.access_token || '' : '';
-    const messages = c.items.slice(-12).map(m => ({ role: m.role, content: String(m.text || '').slice(0, 3000) }));
-    res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: JSON.stringify({ messages, context: aiContext() }) });
-    try { data = await res.json(); } catch (e) { data = null; }
-  } catch (e) { res = null; }
-  c.busy = false;
-  if (res && res.ok && data && typeof data.text === 'string') {
-    c.items.push({ role: 'assistant', text: data.text.slice(0, 6000), prop: data.proposal && typeof data.proposal === 'object' ? data.proposal : null, habits: Array.isArray(data.habits) ? data.habits.slice(0, 6) : null, at: Date.now() });
-    if (typeof data.remaining === 'number') c.remaining = data.remaining;
-    if (c.items.length > MAX_CHAT) c.items = c.items.slice(-MAX_CHAT);
-    saveChat();
-  } else {
-    c.items.pop();
-    S.drafts['chat-in'] = text;
-    c.err = chatErrText(res, data);
-  }
-  renderChat();
-  if (!c.err) focusEl('chat-in');
-}
-function applyProposal(i) {
-  const it = S.chat.items[i];
-  if (!it || !it.prop || it.applied || S.readonly || !S.loaded.settings) return;
-  const chk = proposalCheck(it.prop), o = chk.out;
-  if (!Object.keys(o).length) return;
-  const nutri = Object.assign({}, S.settings.nutri);
-  for (const k of NK) if (o[k] != null) nutri[k] = o[k];
-  S.settings.nutri = nutri;
-  if (o.waterGoal != null) S.settings.waterGoal = o.waterGoal;
-  if (o.sleepGoal != null) S.settings.sleepGoal = o.sleepGoal;
-  if (o.stepGoal != null) S.settings.stepGoal = o.stepGoal;
-  saveSettings();
-  it.applied = true;
-  saveChat();
-  renderGuia();
-  toast('Metas aplicadas.' + (chk.skipped.length ? ' No cambié ' + chk.skipped.join(', ') + '.' : ''));
-}
-
-/* ---------- eventos de lo nuevo ---------- */
-function planClick(act, el, id) {
-  const st = S.sheet;
-  switch (act) {
-    case 'plan-open': openPlan(); return true;
-    case 'pl-set':
-      if (!st || st.kind !== 'plan') return true;
-      for (const f of ['birth', 'height', 'weight']) { const x = document.getElementById('pl-' + f); if (x) st.in[f] = x.value; }
-      st.in[el.dataset.f] = el.dataset.v;
-      st.err = '';
-      renderSheet();
-      return true;
-    case 'pl-tog': {
-      if (!st || st.kind !== 'plan') return true;
-      for (const f of ['birth', 'height', 'weight']) { const x = document.getElementById('pl-' + f); if (x) st.in[f] = x.value; }
-      const arr = st.in[el.dataset.f], v = el.dataset.v, j = arr.indexOf(v);
-      if (j >= 0) arr.splice(j, 1); else arr.push(v);
-      renderSheet();
-      return true;
-    }
-    case 'chat-quick': chatSend(el.dataset.q); return true;
-    case 'chat-clear': confirmOrDo('chat-clear', () => { S.chat.items = []; S.chat.err = ''; saveChat(); }, renderGuia); return true;
-    case 'ai-apply': applyProposal(Number(el.dataset.i)); return true;
-    case 'gd-del': {
-      const sec = el.dataset.sec;
-      if (!S.loaded.guide || !GUIDE_SECTIONS.some(x => x.k === sec)) return true;
-      confirmOrDo('gd:' + id, () => { S.guide = Object.assign({}, S.guide); S.guide[sec] = guideList(sec).filter(x => x.id !== id); saveGuide(); }, renderGuia);
-      return true;
-    }
-    case 'shop-suggest': suggestShop(); return true;
-    case 'hb-del': {
-      const k = el.dataset.k;
-      if (!S.loaded.habits) return true;
-      confirmOrDo('hb:' + k, () => { saveHabits(habitsList().filter(x => x.k !== k)); }, renderAjustes);
-      return true;
-    }
-    case 'hb-reset':
-      if (S.readonly || !S.loaded.habits) return true;
-      S.habits = null;
-      delDoc('config/habits');
-      renderAjustes();
-      return true;
-    default: return false;
-  }
-}
-function planInput(t) {
-  if (t.dataset.pl && S.sheet && S.sheet.kind === 'plan') { S.sheet.in[t.dataset.pl] = t.value; return true; }
-  return false;
-}
-function planSubmit(kind) {
-  const f = document.querySelector('[data-form="' + kind + '"]');
-  switch (kind) {
-    case 'sh-plan': submitPlanForm(); return true;
-    case 'sh-plansave': savePlan(); return true;
-    case 'chat': chatSend(f ? ($('#chat-in', f) || {}).value : ''); return true;
-    case 'guide': submitGuide(f); return true;
-    case 'habit': submitHabit(f); return true;
-    default: return false;
-  }
-}
-
-function cleanProfile(d) {
-  const o = {};
-  if (GOALS.some(g => g.k === d.goal)) o.goal = d.goal;
-  if (d.pace === 'suave' || d.pace === 'moderado') o.pace = d.pace;
-  if (ACTIVITY.some(a => a.k === d.activity)) o.activity = d.activity;
-  if (Array.isArray(d.diet)) o.diet = d.diet.filter(k => DIETS.some(x => x.k === k));
-  if (Array.isArray(d.cond)) o.cond = d.cond.filter(k => CONDITIONS.some(x => x.k === k));
-  if (d.onboarded) o.onboarded = true;
-  if (d.plan && typeof d.plan === 'object') o.plan = { at: /^\d{4}-\d{2}-\d{2}$/.test(String(d.plan.at || '')) ? d.plan.at : '', maint: Number(d.plan.maint) || null, kcal: Number(d.plan.kcal) || null };
-  return o;
-}
-
-/* =====================================================================
-   Ascend v4: hábitos con recurrencia, recordatorios, gimnasio y análisis con IA
-   ===================================================================== */
-S.reminders = []; S.loaded.reminders = false;
-S.routines = []; S.loaded.routines = false;
-S.rlists = null; S.loaded.rlists = false;
-S.loaded.aianalysis = false;
-S.ana = { period: 'week', hperiod: 'week', busy: '', err: {}, items: [] };
-S.hab = { tab: lsGet('ascend-htab') === 'rem' ? 'rem' : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
-IMPORT_COLS.push('reminders', 'routines');
-const MAX_REMS = 800, MAX_RLISTS = 30, MAX_ROUTINES = 30, MAX_ANA = 15;
-const isKey = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
-const isHM = s => /^\d{2}:\d{2}$/.test(String(s || ''));
-const weekStart = k => addDays(k, -((parseKey(k).getDay() + 6) % 7));
-const monthStart = k => k.slice(0, 8) + '01';
-const monthEnd = k => { const d = parseKey(k); return keyOf(new Date(d.getFullYear(), d.getMonth() + 1, 0)); };
-const clampInt = (v, lo, hi, fb) => { const n = parseInt(v, 10); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fb; };
-const plural = (n, a, b) => n + ' ' + (n === 1 ? a : b);
-const dayWord = k => { const tk = todayKey(); return k === tk ? 'Hoy' : k === addDays(tk, 1) ? 'Mañana' : k === addDays(tk, -1) ? 'Ayer' : fmtDay(k); };
