@@ -22,6 +22,7 @@ function v4Click(act, el, id) {
   if (v7Click(act, el, id)) return;
   if (v8Click(act, el, id)) return;
   if (v9Click(act, el, id)) return;
+  if (v10Click(act, el, id)) return;
   const st = S.sheet;
   switch (act) {
     case 'htab': S.hab.tab = ['rem', 'boss'].indexOf(el.dataset.v) >= 0 ? el.dataset.v : 'hab'; lsSet('ascend-htab', S.hab.tab); renderHabitos(); return true;

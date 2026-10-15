@@ -26,7 +26,7 @@ function appSettingsCardHTML() {
   const on = medsOn(), dis = S.readonly || !S.loaded.settings ? ' disabled' : '';
   return '<section class="card" id="card-appset"><div class="card-h"><h2>Ajustes de la app</h2></div>' +
     '<div class="setrow"><div class="setrow-i"><b>Medicamentos</b><span>Muestra la sección de medicamentos y sus recordatorios en Hoy.</span></div>' +
-    '<button type="button" class="switch' + (on ? ' on' : '') + '" id="set-meds" data-act="meds-toggle" aria-pressed="' + on + '"' + dis + '><span class="sw"></span>' + (on ? 'Activado' : 'Desactivado') + '</button></div></section>';
+    '<button type="button" class="switch' + (on ? ' on' : '') + '" id="set-meds" data-act="meds-toggle" aria-pressed="' + on + '"' + dis + '><span class="sw"></span>' + (on ? 'Activado' : 'Desactivado') + '</button></div>' + healthRowHTML() + '</section>';
 }
 function v6Click(act, el, id) {
   if (act === 'meds-toggle') {

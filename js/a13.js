@@ -122,6 +122,7 @@ function saveMedDraft() {
 
 /* ---------- navegación ---------- */
 function renderActive() {
+  if (typeof applyAppVis === 'function') applyAppVis();
   const t = S.tab;
   if (t === 'hoy') renderHoy();
   else if (t === 'progreso') renderProgreso();
@@ -133,6 +134,7 @@ function renderActive() {
 function setTab(t) {
   if (S.sheet) closeSheet();
   if (['hoy', 'progreso', 'habitos', 'salud', 'guia', 'ajustes'].indexOf(t) < 0) t = 'hoy';
+  if (t === 'salud' && !healthOn()) t = 'hoy';
   S.tab = t;
   S.confirmDel = null;
   for (const v of $$('.view')) v.hidden = v.dataset.view !== t;

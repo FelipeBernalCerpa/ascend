@@ -106,6 +106,7 @@ function subscribeAll() {
     const next = mergeSettings(data);
     const ch = stable(next) !== stable(S.settings);
     S.settings = next;
+    applyAppVis();
     if (ch || (first && S.tab === 'ajustes')) renderActive();
   });
   store.watchDoc('config/meds', data => {
@@ -146,8 +147,8 @@ function subscribeAll() {
   });
   store.watchCol('days', onDays, ref => ref.orderBy('date', 'desc').limit(400));
   store.watchCol('measures', colHandler('measures', byDate, () => { if (S.tab === 'progreso') renderProgreso(); else if (S.tab === 'hoy') renderHoy(['act', 'meters']); else if (S.tab === 'ajustes') renderAjustes(); }));
-  store.watchCol('labs', colHandler('labs', byDate, () => { if (S.tab === 'salud') renderSalud(); }));
-  store.watchCol('questions', colHandler('questions', byCreated, () => { if (S.tab === 'salud') renderSalud(); }));
+  store.watchCol('labs', colHandler('labs', byDate, () => { applyAppVis(); if (S.tab === 'salud') renderSalud(); }));
+  store.watchCol('questions', colHandler('questions', byCreated, () => { applyAppVis(); if (S.tab === 'salud') renderSalud(); }));
   const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'es');
   const onLib = () => { if (S.tab === 'ajustes') renderAjustes(); if (S.sheet && S.sheet.step === 'search') refreshRes(); };
   store.watchCol('foods', colHandler('foods', byName, onLib));
