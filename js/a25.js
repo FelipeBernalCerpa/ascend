@@ -186,6 +186,7 @@ async function socialInit() {
   if (S.social.has && S.daysLoaded) socialPublish(true);
   if (S.tab === 'ajustes') renderAjustes();
   else if (S.tab === 'progreso') renderProgreso();
+  else if (S.tab === 'club') renderClub();
 }
 function socialMaybeInit() {
   if (!sb || typeof store === 'undefined' || !store.userId) return;
@@ -261,10 +262,9 @@ async function socialLoadBoards() {
   if (!sb || !store.userId || !S.social.has) return;
   if (S.daysLoaded) { S.social._pub = 0; await socialPublish(true); }
   try {
-    const [f, g] = await Promise.all([sb.rpc('game_friends_board'), sb.rpc('game_global_board')]);
+    const f = await sb.rpc('game_friends_board');
     if (!f.error) S.social.fboard = f.data || [];
-    if (!g.error) S.social.gboard = g.data || [];
-    if (S.tab === 'progreso') renderProgreso();
+    if (S.tab === 'club') renderClub();
   } catch (e) {}
 }
 

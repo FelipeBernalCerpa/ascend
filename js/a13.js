@@ -130,10 +130,11 @@ function renderActive() {
   else if (t === 'guia') renderGuia();
   else if (t === 'ajustes') renderAjustes();
   else if (t === 'habitos') renderHabitos();
+  else if (t === 'club') renderClub();
 }
 function setTab(t) {
   if (S.sheet) closeSheet();
-  if (['hoy', 'progreso', 'habitos', 'salud', 'guia', 'ajustes'].indexOf(t) < 0) t = 'hoy';
+  if (['hoy', 'progreso', 'habitos', 'salud', 'guia', 'club', 'ajustes'].indexOf(t) < 0) t = 'hoy';
   if (t === 'salud' && !healthOn()) t = 'hoy';
   S.tab = t;
   S.confirmDel = null;

@@ -140,7 +140,7 @@ function renderProgreso() {
   const root = $('#view-progreso');
   if (!root) return;
   S.charts = {};
-  swap(root, achievementsHTML() + anaCardHTML('gen') + weekHTML() + averagesHTML() + nutri7HTML() + measureHTML('weight') + compHTML() + bmiHTML() + measureHTML('height') + rankingCardHTML());
+  swap(root, achievementsHTML() + anaCardHTML('gen') + weekHTML() + averagesHTML() + nutri7HTML() + measureHTML('weight') + compHTML() + bmiHTML() + measureHTML('height'));
   drawCharts(root);
 }
 
