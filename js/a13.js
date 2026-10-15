@@ -68,7 +68,7 @@ function renderAjustes() {
       (newDraft ? '<div class="med editing new">' + medEditorHTML() + '</div>'
         : '<button type="button" class="btn add-top" id="med-new" data-act="med-new"' + (S.readonly || !S.medsLoaded ? ' disabled' : '') + '>Agregar medicamento</button>') +
       '<div class="meds">' + medsList + '</div>' +
-      '<p class="hint">Copia nombre, dosis y horario tal como vienen en tu fórmula. Si un médico cambia algo, actualízalo aquí el mismo día.</p></section>' +
+      '<p class="hint">Copia nombre, dosis y horario tal como vienen en tu fórmula. Si un médico cambia algo, actualízalo aquí el mismo día.</p>' + medNotifHTML() + '</section>' +
     '<section class="card"><div class="card-h"><h2>Horarios de tomas</h2></div><div class="slots-ed">' + slotsHTML + '</div></section>' : '') +
     '<section class="card"><div class="card-h"><h2>Metas</h2></div><div class="grid2">' +
       '<div class="field"><label class="lbl" for="set-water">Agua al día (ml)</label><input type="text" inputmode="numeric" id="set-water" data-set="waterGoal" value="' + esc(s.waterGoal) + '"' + setDis + '></div>' +

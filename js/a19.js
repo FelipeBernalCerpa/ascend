@@ -146,6 +146,15 @@ function v4Notify() {
   const near = hm => { const m = hm2min(hm); return m <= nm && nm - m < 180; };
   for (const r of S.reminders) if (!r.done && r.due === tk && isHM(r.time) && near(r.time)) { const key = 'r:' + r.id + ':' + r.due + ':' + r.time; if (!seen[key]) { seen[key] = tk; out.push(['Recordatorio', r.t]); } }
   for (const h of habs()) if (h.remind && habDueOn(h, tk) && !habDone(h, tk) && near(h.remind)) { const key = 'h:' + h.k + ':' + tk; if (!seen[key]) { seen[key] = tk; out.push(['Hábito', h.label]); } }
+  if (typeof medsOn === 'function' && medsOn() && typeof dosesFor === 'function') {
+    const mday = S.days[tk], mrecs = (mday && mday.meds) || {};
+    for (const ds of dosesFor(tk)) {
+      if (mrecs[ds.key] && mrecs[ds.key].s === 'taken') continue;
+      if (!isHM(ds.hm) || !near(ds.hm)) continue;
+      const key = 'm:' + ds.key + ':' + tk;
+      if (!seen[key]) { seen[key] = tk; out.push(['Medicamento', ds.med.name + (ds.med.dose ? ' · ' + ds.med.dose : '')]); }
+    }
+  }
   if (!out.length) return;
   for (const k of Object.keys(seen)) if (seen[k] < addDays(tk, -3)) delete seen[k];
   lsSet('ascend-avisos', JSON.stringify(seen));
