@@ -1,4 +1,21 @@
 'use strict';
+function shScanHTML(st) {
+  const sc = st.scan || {};
+  return sheetTop('Código de barras', true) +
+    '<video id="sh-video" class="scan-v" playsinline muted autoplay></video>' +
+    '<p class="hint" id="sh-scanmsg">' + esc(sc.msg || '') + '</p>' +
+    '<form class="sh-form" data-form="sh-code" novalidate><div class="field"><label class="lbl" for="sh-code">O escribe el número que está debajo de las barras</label>' +
+      '<div class="add-row"><input type="text" inputmode="numeric" id="sh-code" data-sh="code" maxlength="14" autocomplete="off" value="' + esc(sc.code || '') + '"><button type="submit" class="btn" id="sh-codego">Buscar</button></div></div></form>' +
+    '<div id="sh-scanout"></div>';
+}
+function shRecHTML(st) {
+  const items = st.items || [];
+  return sheetTop('Comida frecuente') +
+    '<p class="prose">Guarda estos alimentos juntos para agregarlos con un toque otro día.</p>' +
+    '<ul class="rec-items">' + items.map(e => '<li>' + esc(e.name) + ' <small>' + esc(qtyText(e.amt, e.u, e.g, e.l)) + '</small></li>').join('') + '</ul>' +
+    '<form class="sh-form" data-form="sh-rec" novalidate><div class="field"><label class="lbl" for="sh-recname">Nombre</label><input type="text" id="sh-recname" data-sh="recname" maxlength="60" autocomplete="off" value="' + esc(st.recname || '') + '"></div>' +
+    '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p><button type="submit" class="btn" id="sh-recsave"' + (S.readonly || !S.loaded.recipes ? ' disabled' : '') + '>Guardar</button></form>';
+}
 function exPerH() { return energyFor(S.viewKey, getDay(S.viewKey)).perH; }
 function exResultsHTML(st) {
   const q = norm(st.q || ''), qt = q ? q.split(' ') : [];
@@ -328,31 +345,4 @@ function offToFood(p, code) {
   const pk = /\d\s*[x×]\s*\d/i.test(qtyS) ? null : qtyS.match(/(\d+(?:[.,]\d+)?)\s*(g|gr|ml)\b/i);
   if (pk) { const pg = Number(pk[1].replace(',', '.')); if (pg > 0 && pg <= 5000 && !units.some(u => Math.abs(u.g - pg) < 0.5)) units.push({ u: 'empaque completo', g: pg }); }
   return { src: 'off', id: 'off-' + code, code, name: offName(p) || 'Producto ' + code, brand: offBrand(p), v, units, liquid, approx: false, missing };
-}
-async function offProduct(code) {
-  const r = await getJSON('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) + '.json?fields=' + OFF_FIELDS, 10000);
-  const d = r.data;
-  if (r.status === 404 || !d || Number(d.status) !== 1 || !d.product) return { miss: 'notfound' };
-  const f = offToFood(d.product, code);
-  if (!f) return { miss: 'nodata', name: offName(d.product) };
-  return { food: f };
-}
-const luceneSafe = q => String(q).replace(/[+\-&|!(){}[\]^"~*?:\\/]/g, ' ').replace(/\s+/g, ' ').trim();
-async function offSearch(q) {
-  const base = 'https://search.openfoodfacts.org/search?langs=es,en&page_size=20&fields=code,product_name,brands,quantity,nutriments&q=';
-  const clean = luceneSafe(q);
-  const hitsOf = r => (r && r.data && Array.isArray(r.data.hits) ? r.data.hits : []);
-  let hits = [], fails = 0;
-  try { hits = hitsOf(await getJSON(base + encodeURIComponent(clean + ' countries_tags:"en:colombia"'), 9000)); } catch (e) { fails++; }
-  if (hits.length < 6) {
-    try {
-      const seen = new Set(hits.map(h => String(h.code)));
-      for (const h of hitsOf(await getJSON(base + encodeURIComponent(clean), 9000))) if (!seen.has(String(h.code))) hits.push(h);
-    } catch (e) { fails++; }
-  }
-  if (!hits.length && fails === 2) throw new Error('off');
-  return hits.filter(h => h && /^\d{6,14}$/.test(String(h.code || ''))).slice(0, 20).map(h => {
-    const k = Number(h.nutriments && h.nutriments['energy-kcal_100g']);
-    return { code: String(h.code), name: offName(h) || 'Producto ' + h.code, brand: offBrand(h), qty: String(h.quantity || '').slice(0, 30), kcal: isFinite(k) && k >= 0 ? k : null };
-  });
 }

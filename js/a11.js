@@ -1,4 +1,26 @@
 'use strict';
+function achStats() {
+  const keys = Object.keys(S.days);
+  const act = new Set(), water = new Set();
+  let habits = 0, exDays = 0, logged = 0;
+  for (const k of keys) {
+    const d = S.days[k];
+    if (!d) continue;
+    logged++;
+    if (d.boost) for (const x of Object.keys(d.boost)) if (d.boost[x]) habits++;
+    if (dayWaterMet(d)) water.add(k);
+    if (dayExercise(d)) exDays++;
+    if (gDayActive(k)) act.add(k);
+  }
+  let best = 0;
+  for (const k of act) {
+    if (act.has(addDays(k, -1))) continue;
+    let n = 0, x = k;
+    while (act.has(x)) { n++; x = addDays(x, 1); }
+    if (n > best) best = n;
+  }
+  return { best, cur: gCurStreak(), water: water.size, habits, exDays, logged };
+}
 function achievementsHTML() {
   if (!S.daysLoaded) return '';
   const a = achStats();

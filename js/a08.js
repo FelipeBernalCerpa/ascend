@@ -1,4 +1,20 @@
 'use strict';
+function actHTML(c) {
+  const d = c.day, dis = S.readonly || !S.daysLoaded ? ' disabled' : '';
+  const en = energyFor(c.k, d);
+  const acts = Array.isArray(d.acts) ? d.acts : [];
+  const lt = d.ex ? (d.ex.types || []).map(t => (EX_TYPES.find(x => x.k === t) || {}).label).filter(Boolean) : [];
+  const legacy = lt.length || (d.ex && d.ex.min != null) ? '<p class="hint">Registro anterior: ' + esc(lt.join(', ') || 'ejercicio') + (d.ex.min != null ? ' · ' + esc(d.ex.min) + ' min' : '') + '.</p>' : '';
+  const intense = countIntense(c.k);
+  const meta = acts.length && en.perH && !en.exUnknown ? fmtInt(r10(en.exKcal)) + ' kcal en ejercicio' : '';
+  return '<section id="card-act" class="card"><div class="card-h"><h2>Actividad y energía</h2>' + (meta ? '<span class="meta">' + meta + '</span>' : '') + '</div>' +
+    '<div class="steps-row"><div class="field"><label class="lbl" for="steps-in">' + (c.isToday ? 'Pasos de hoy' : 'Pasos') + '</label><input type="text" inputmode="numeric" id="steps-in" autocomplete="off" placeholder="0" value="' + (d.steps ? esc(fmtInt(d.steps)) : '') + '"' + (S.readonly || !S.daysLoaded ? ' readonly' : '') + '></div>' +
+    '<p class="steps-out" id="steps-out">' + stepsOutHTML(en) + '</p></div>' +
+    (acts.length ? '<div class="acts">' + acts.map(a => actRowHTML(a, en.perH)).join('') + '</div>' : '') +
+    '<div class="row act-btns"><button type="button" class="btn sm add" id="act-add" data-act="act-add"' + dis + '>Agregar ejercicio</button><button type="button" class="btn sm ghost" id="gym-add" data-act="gym-open"' + dis + '>Gimnasio</button></div>' + legacy +
+    (intense >= 4 && (profileGoal() === 'subir' || profileGoal() === 'musculo') ? '<p class="hint warn-t">Llevas ' + intense + ' días de cardio intenso en la última semana. Si buscas subir de peso o ganar músculo, aflójale o come más esos días.</p>' : '') +
+    '<div id="energy-box">' + energyBoxHTML(c, en) + '</div></section>';
+}
 function refreshEnergy() {
   const c = hoyCtx();
   const en = energyFor(c.k, c.day);
@@ -200,21 +216,4 @@ function shCustomHTML(st) {
       '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
       '<button type="submit" class="btn" id="cf-save"' + (S.readonly || !S.loaded.foods ? ' disabled' : '') + '>Guardar alimento</button>' +
     '</form>';
-}
-function shScanHTML(st) {
-  const sc = st.scan || {};
-  return sheetTop('Código de barras', true) +
-    '<video id="sh-video" class="scan-v" playsinline muted autoplay></video>' +
-    '<p class="hint" id="sh-scanmsg">' + esc(sc.msg || '') + '</p>' +
-    '<form class="sh-form" data-form="sh-code" novalidate><div class="field"><label class="lbl" for="sh-code">O escribe el número que está debajo de las barras</label>' +
-      '<div class="add-row"><input type="text" inputmode="numeric" id="sh-code" data-sh="code" maxlength="14" autocomplete="off" value="' + esc(sc.code || '') + '"><button type="submit" class="btn" id="sh-codego">Buscar</button></div></div></form>' +
-    '<div id="sh-scanout"></div>';
-}
-function shRecHTML(st) {
-  const items = st.items || [];
-  return sheetTop('Comida frecuente') +
-    '<p class="prose">Guarda estos alimentos juntos para agregarlos con un toque otro día.</p>' +
-    '<ul class="rec-items">' + items.map(e => '<li>' + esc(e.name) + ' <small>' + esc(qtyText(e.amt, e.u, e.g, e.l)) + '</small></li>').join('') + '</ul>' +
-    '<form class="sh-form" data-form="sh-rec" novalidate><div class="field"><label class="lbl" for="sh-recname">Nombre</label><input type="text" id="sh-recname" data-sh="recname" maxlength="60" autocomplete="off" value="' + esc(st.recname || '') + '"></div>' +
-    '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p><button type="submit" class="btn" id="sh-recsave"' + (S.readonly || !S.loaded.recipes ? ' disabled' : '') + '>Guardar</button></form>';
 }

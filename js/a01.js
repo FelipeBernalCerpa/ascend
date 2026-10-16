@@ -196,7 +196,7 @@ const FOODS = [
   /* 0 · proteínas y leguminosas */
   FD('huevo', 'Huevo entero cocido', 0, [143, 12.6, 0.7, 0.4, 0, 9.5, 3.1, 142], [['unidad', 50]], '', 'huevos tibio duro'),
   FD('huevo_frito', 'Huevo frito', 0, [196, 13.6, 0.8, 0.4, 0, 14.8, 4.3, 207], [['unidad', 46]], '', 'huevos'),
-  FD('huevo_rev', 'Huevos revueltos o pericos', 0, [149, 10, 1.6, 1.4, 0, 11, 3.3, 145], [['huevo', 61]], '', 'huevos perico'),
+  FD('huevo_rev', 'Huevos revueltos', 0, [149, 10, 1.6, 1.4, 0, 11, 3.3, 145], [['huevo', 61], ['porción (2 huevos)', 122]], '', 'huevos revueltos tortilla'),
   FD('clara', 'Clara de huevo', 0, [52, 10.9, 0.7, 0.7, 0, 0.2, 0, 166], [['clara', 33]], '', 'huevo claras'),
   FD('pechuga', 'Pechuga de pollo sin piel, cocida', 0, [165, 31, 0, 0, 0, 3.6, 1, 74], [['filete mediano', 120], ['porción pequeña', 80]], '', 'pollo asado desmechado'),
   FD('muslo', 'Muslo de pollo sin piel, cocido', 0, [209, 26, 0, 0, 0, 10.9, 3, 95], [['unidad', 80]], '', 'pollo pierna contramuslo'),
@@ -245,7 +245,7 @@ const FOODS = [
   FD('pandebono', 'Pandebono', 1, [330, 8, 40, 3, 0.5, 15, 7, 500], [['unidad', 50]], 'a', ''),
   FD('almojabana', 'Almojábana', 1, [320, 9, 42, 5, 0.5, 13, 6, 450], [['unidad', 60]], 'a', ''),
   FD('bunuelo', 'Buñuelo', 1, [380, 9, 38, 3, 0.5, 22, 7, 400], [['unidad', 40]], 'a', ''),
-  FD('empanada', 'Empanada frita', 1, [270, 7, 28, 1, 2, 14, 3, 350], [['unidad', 80]], 'a', 'empanadas'),
+  FD('empanada', 'Empanada de papa y carne (frita)', 8, [270, 7, 28, 1, 2, 14, 3, 350], [['unidad', 80]], 'a', 'empanadas'),
 
   /* 2 · frutas */
   FD('banano', 'Banano', 2, [89, 1.1, 22.8, 12.2, 2.6, 0.3, 0.1, 1], [['mediano', 118], ['pequeño', 80]], '', 'banana guineo'),

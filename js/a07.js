@@ -42,6 +42,14 @@ function notesHTML(c) {
     '<textarea id="day-notes" rows="3" placeholder="Síntomas, cómo te sentiste, qué preguntar en la próxima cita"' + roText() + '>' + esc(c.day.notes || '') + '</textarea></section>';
 }
 /* ---------- nutrición y actividad: cálculos ---------- */
+FOODS.push(
+  FD('huevo_perico', 'Huevos pericos (con tomate y cebolla)', 0, [138, 9.4, 2.6, 1.8, 0.5, 10, 3, 175], [['porción (2 huevos)', 130], ['huevo', 61]], '', 'perico pericos huevo tomate cebolla'),
+  FD('empanada_carne', 'Empanada de carne', 8, [272, 8.5, 26, 1, 2, 15, 4, 360], [['unidad', 80]], 'a', 'empanadas carne res molida'),
+  FD('empanada_pollo', 'Empanada de pollo', 8, [255, 9.5, 26, 1, 2, 12.5, 3.3, 350], [['unidad', 80]], 'a', 'empanadas pollo'),
+  FD('empanada_queso', 'Empanada de queso', 8, [300, 9, 26, 1, 1.5, 18, 8, 430], [['unidad', 80]], 'a', 'empanadas queso'),
+  FD('empanada_haw', 'Empanada hawaiana (jamón y queso)', 8, [298, 11, 25, 2, 1.5, 17.5, 7, 490], [['unidad', 80]], 'a', 'empanadas hawaiana jamon queso'),
+  FD('empanada_cq', 'Empanada de carne y queso', 8, [290, 10, 26, 1, 2, 16, 6, 440], [['unidad', 80]], 'a', 'empanadas carne queso mixta')
+);
 const FOOD_BY = Object.fromEntries(FOODS.map(f => [f.id, f]));
 const EX_BY = Object.fromEntries(EXERCISES.map(x => [x.k, x]));
 const LEGACY_MEALS = Object.fromEntries(MEALS.map(m => [m.k, m.label]));
@@ -149,13 +157,19 @@ function tokVariants(t) {
   if (t.length > 3 && /s$/.test(t)) out.push(t.slice(0, -1));
   return out;
 }
+const FOOD_JOINERS = { con: 1, de: 1, del: 1, a: 1, al: 1, en: 1, la: 1, el: 1, los: 1, las: 1, estilo: 1, tipo: 1, y: 1, e: 1, relleno: 1, rellena: 1, rellenos: 1, rellenas: 1, sabor: 1, para: 1 };
 function matchScore(text, q, qt) {
-  const hay = norm(text);
+  const hay = norm(String(text).replace(/\([^)]*\)/g, ' '));
   if (!hay) return -1;
-  if (hay.indexOf(q) === 0) return 0;
   const words = hay.split(' ');
-  if (qt.every(t => tokVariants(t).some(v => words.some(w => w.indexOf(v) === 0)))) return 1;
-  if (hay.indexOf(q) >= 0) return 2;
+  const head = words[0] || '';
+  if (hay === q) return 0;
+  const headEq = head === q || tokVariants(head).indexOf(q) >= 0 || tokVariants(q).indexOf(head) >= 0;
+  const dish = words.some(w => FOOD_JOINERS[w]);
+  if (headEq) { if (words.length === 1) return 0; return dish ? 3 : 1; }
+  if (hay.indexOf(q) === 0) return dish ? 3 : 2;
+  if (qt.every(t => tokVariants(t).some(v => words.some(w => w.indexOf(v) === 0)))) return 4;
+  if (hay.indexOf(q) >= 0) return 5;
   return -1;
 }
 function searchFoods(qRaw) {
@@ -165,8 +179,12 @@ function searchFoods(qRaw) {
   const pool = allRecipes().concat(S.foods.map(myFoodObj), FOODS);
   const out = [];
   for (const f of pool) {
-    const s = matchScore(f.name + ' ' + (f.brand || '') + ' ' + (f.alias || '') + (f.code ? ' ' + f.code : ''), q, qt);
-    if (s >= 0) out.push([s, f.src === 'db' ? 1 : 0, f.name.length, f]);
+    let s = matchScore(f.name, q, qt);
+    if (s < 0) {
+      const extra = ((f.brand || '') + ' ' + (f.alias || '') + (f.code ? ' ' + f.code : '')).trim();
+      if (extra) { const se = matchScore(extra, q, qt); if (se >= 0) s = Math.max(6, se); }
+    }
+    if (s >= 0) out.push([s, f.src === 'db' ? 0 : 1, f.name.length, f]);
   }
   out.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
   return out.map(x => x[3]);
@@ -329,20 +347,4 @@ function energyBoxHTML(c, en) {
     h += row('Balance', (b > 0 ? '+' : b < 0 ? '−' : '') + fmtInt(Math.abs(b)) + ' kcal', 'en-bal');
   }
   return h + '</div><p class="hint">Estimación con tu peso, edad y sexo (±15 %): úsala para ver tendencias. Si los pasos ya incluyen una caminata, no la registres también como ejercicio.</p>';
-}
-function actHTML(c) {
-  const d = c.day, dis = S.readonly || !S.daysLoaded ? ' disabled' : '';
-  const en = energyFor(c.k, d);
-  const acts = Array.isArray(d.acts) ? d.acts : [];
-  const lt = d.ex ? (d.ex.types || []).map(t => (EX_TYPES.find(x => x.k === t) || {}).label).filter(Boolean) : [];
-  const legacy = lt.length || (d.ex && d.ex.min != null) ? '<p class="hint">Registro anterior: ' + esc(lt.join(', ') || 'ejercicio') + (d.ex.min != null ? ' · ' + esc(d.ex.min) + ' min' : '') + '.</p>' : '';
-  const intense = countIntense(c.k);
-  const meta = acts.length && en.perH && !en.exUnknown ? fmtInt(r10(en.exKcal)) + ' kcal en ejercicio' : '';
-  return '<section id="card-act" class="card"><div class="card-h"><h2>Actividad y energía</h2>' + (meta ? '<span class="meta">' + meta + '</span>' : '') + '</div>' +
-    '<div class="steps-row"><div class="field"><label class="lbl" for="steps-in">' + (c.isToday ? 'Pasos de hoy' : 'Pasos') + '</label><input type="text" inputmode="numeric" id="steps-in" autocomplete="off" placeholder="0" value="' + (d.steps ? esc(fmtInt(d.steps)) : '') + '"' + (S.readonly || !S.daysLoaded ? ' readonly' : '') + '></div>' +
-    '<p class="steps-out" id="steps-out">' + stepsOutHTML(en) + '</p></div>' +
-    (acts.length ? '<div class="acts">' + acts.map(a => actRowHTML(a, en.perH)).join('') + '</div>' : '') +
-    '<div class="row act-btns"><button type="button" class="btn sm add" id="act-add" data-act="act-add"' + dis + '>Agregar ejercicio</button><button type="button" class="btn sm ghost" id="gym-add" data-act="gym-open"' + dis + '>Gimnasio</button></div>' + legacy +
-    (intense >= 4 && (profileGoal() === 'subir' || profileGoal() === 'musculo') ? '<p class="hint warn-t">Llevas ' + intense + ' días de cardio intenso en la última semana. Si buscas subir de peso o ganar músculo, aflójale o come más esos días.</p>' : '') +
-    '<div id="energy-box">' + energyBoxHTML(c, en) + '</div></section>';
 }

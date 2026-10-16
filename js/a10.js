@@ -1,4 +1,31 @@
 'use strict';
+async function offProduct(code) {
+  const r = await getJSON('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) + '.json?fields=' + OFF_FIELDS, 10000);
+  const d = r.data;
+  if (r.status === 404 || !d || Number(d.status) !== 1 || !d.product) return { miss: 'notfound' };
+  const f = offToFood(d.product, code);
+  if (!f) return { miss: 'nodata', name: offName(d.product) };
+  return { food: f };
+}
+const luceneSafe = q => String(q).replace(/[+\-&|!(){}[\]^"~*?:\\/]/g, ' ').replace(/\s+/g, ' ').trim();
+async function offSearch(q) {
+  const base = 'https://search.openfoodfacts.org/search?langs=es,en&page_size=20&fields=code,product_name,brands,quantity,nutriments&q=';
+  const clean = luceneSafe(q);
+  const hitsOf = r => (r && r.data && Array.isArray(r.data.hits) ? r.data.hits : []);
+  let hits = [], fails = 0;
+  try { hits = hitsOf(await getJSON(base + encodeURIComponent(clean + ' countries_tags:"en:colombia"'), 9000)); } catch (e) { fails++; }
+  if (hits.length < 6) {
+    try {
+      const seen = new Set(hits.map(h => String(h.code)));
+      for (const h of hitsOf(await getJSON(base + encodeURIComponent(clean), 9000))) if (!seen.has(String(h.code))) hits.push(h);
+    } catch (e) { fails++; }
+  }
+  if (!hits.length && fails === 2) throw new Error('off');
+  return hits.filter(h => h && /^\d{6,14}$/.test(String(h.code || ''))).slice(0, 20).map(h => {
+    const k = Number(h.nutriments && h.nutriments['energy-kcal_100g']);
+    return { code: String(h.code), name: offName(h) || 'Producto ' + h.code, brand: offBrand(h), qty: String(h.quantity || '').slice(0, 30), kcal: isFinite(k) && k >= 0 ? k : null };
+  });
+}
 async function runOffSearch() {
   const st = S.sheet;
   if (!st) return;
@@ -426,27 +453,4 @@ function gameCardHTML() {
       '<div class="g-shields" title="Escudos de racha">' + [0, 1, 2].map(i => '<span class="g-sh' + (i < g.shields ? ' on' : '') + '">🛡️</span>').join('') + '</div></div>' +
     (g.decaying ? '<p class="g-decay">Tu nivel bajó un poco mientras descansabas. Vuelve hoy y lo recuperas en días.</p>' : '') +
     '</section>';
-}
-
-function achStats() {
-  const keys = Object.keys(S.days);
-  const act = new Set(), water = new Set();
-  let habits = 0, exDays = 0, logged = 0;
-  for (const k of keys) {
-    const d = S.days[k];
-    if (!d) continue;
-    logged++;
-    if (d.boost) for (const x of Object.keys(d.boost)) if (d.boost[x]) habits++;
-    if (dayWaterMet(d)) water.add(k);
-    if (dayExercise(d)) exDays++;
-    if (gDayActive(k)) act.add(k);
-  }
-  let best = 0;
-  for (const k of act) {
-    if (act.has(addDays(k, -1))) continue;
-    let n = 0, x = k;
-    while (act.has(x)) { n++; x = addDays(x, 1); }
-    if (n > best) best = n;
-  }
-  return { best, cur: gCurStreak(), water: water.size, habits, exDays, logged };
 }
