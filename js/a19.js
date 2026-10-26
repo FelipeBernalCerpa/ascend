@@ -1,4 +1,64 @@
 'use strict';
+function remSectionHTML() {
+  const tk = todayKey(), v = S.hab.rview;
+  if (!S.loaded.reminders || !S.loaded.rlists) return '<section class="card"><p class="empty">Cargando tus recordatorios…</p></section>';
+  if (v === 'home') return remHomeHTML(tk);
+  return remListHTML(v, tk);
+}
+function remHomeHTML(tk) {
+  const c = remCounts(tk);
+  const tile = (v, label, n, cls) => '<button type="button" class="rtile ' + cls + '" id="rv-' + v + '" data-act="rem-view" data-v="' + v + '"><span class="rtile-n">' + n + '</span><span class="rtile-l">' + label + '</span></button>';
+  const lists = rlists();
+  const nl = S.hab.newList;
+  const canNotif = typeof Notification !== 'undefined' && Notification.permission === 'default';
+  return '<section class="card" id="card-rhome"><div class="rtiles">' + tile('today', 'Hoy', c.today, 't-today') + tile('scheduled', 'Programados', c.scheduled, 't-sched') + tile('all', 'Todos', c.all, 't-all') + tile('flagged', 'Marcados', c.flagged, 't-flag') + '</div>' +
+    '<button type="button" class="link rdone-link" id="rv-done" data-act="rem-view" data-v="done">Completados (' + c.done + ')</button></section>' +
+    '<section class="card" id="card-rlists"><div class="card-h"><h2>Mis listas</h2><span class="meta">' + lists.length + '</span></div><div class="rlists">' +
+      lists.map(l => '<button type="button" class="rlist" id="rl-' + esc(l.id) + '" data-act="rem-view" data-v="' + esc(l.id) + '"><i class="rdot" style="background:' + esc(l.color) + '"></i><span>' + esc(l.name) + '</span><b>' + (c.lists[l.id] || 0) + '</b></button>').join('') + '</div>' +
+      (nl ? rlistFormHTML(null) : '<button type="button" class="btn sm quiet add-top" id="rl-new" data-act="rl-new"' + (S.readonly || lists.length > MAX_RLISTS ? ' disabled' : '') + '>Nueva lista</button>') +
+      '<p class="hint">Agrupa tus recordatorios por tema: colegio, casa, compras, citas…</p></section>' +
+    '<section class="card"><div class="row between"><button type="button" class="btn" id="rem-new" data-act="rem-new"' + (S.readonly ? ' disabled' : '') + '>Nuevo recordatorio</button>' +
+      (canNotif ? '<button type="button" class="btn sm quiet" id="rem-notif" data-act="rem-notif">Activar avisos</button>' : '') + '</div>' +
+      '<p class="hint">Los avisos de hora salen mientras Ascend está abierta en tu celular o computador.</p></section>';
+}
+function rlistFormHTML(l) {
+  const col = S.hab.listColor || (l ? l.color : RCOLORS[1]);
+  return '<form class="form rl-form" data-form="' + (l ? 'rl-edit' : 'rl-new') + '" novalidate><div class="field"><label class="lbl" for="rl-name">Nombre de la lista</label><input type="text" id="rl-name" data-draft maxlength="40" autocomplete="off" value="' + esc(draft('rl-name', l ? l.name : '')) + '"></div>' +
+    '<div class="rcolors" role="group" aria-label="Color">' + RCOLORS.map(c => '<button type="button" class="rcolor" data-act="rl-color" data-v="' + c + '" aria-pressed="' + (c === col) + '" style="background:' + c + '" aria-label="Color"></button>').join('') + '</div>' +
+    '<p class="form-err">' + esc(S.formErr.rl || '') + '</p><div class="row"><button type="submit" class="btn sm" id="rl-save">' + (l ? 'Guardar lista' : 'Crear lista') + '</button><button type="button" class="btn sm quiet" id="rl-cancel" data-act="rl-cancel">Cancelar</button></div></form>';
+}
+function remListHTML(v, tk) {
+  const smart = { today: 'Hoy', scheduled: 'Programados', all: 'Todos', flagged: 'Marcados', done: 'Completados' };
+  const isList = !smart[v];
+  const l = isList ? rlistOf(v) : null;
+  if (isList && l.id !== v) { S.hab.rview = 'home'; return remHomeHTML(tk); }
+  let items = S.reminders.filter(r => remInView(r, v, tk));
+  items = v === 'done' ? items.sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)) : items.sort(remSort);
+  const title = isList ? l.name : smart[v];
+  const showList = !isList;
+  let body = '';
+  if (!items.length) body = '<p class="empty">' + (v === 'done' ? 'Aún no hay recordatorios completados.' : v === 'today' ? 'Nada pendiente para hoy.' : 'No hay recordatorios aquí.') + '</p>';
+  else if (v === 'scheduled' || v === 'all') {
+    const groups = [];
+    for (const r of items) {
+      const g = v === 'all' ? rlistOf(r.l).name : (!r.due ? 'Sin fecha' : r.due < tk ? 'Vencidos' : dayWord(r.due));
+      let last = groups[groups.length - 1];
+      if (v === 'all') last = groups.find(x => x.g === g);
+      if (!last || last.g !== g) { last = { g, items: [] }; groups.push(last); }
+      last.items.push(r);
+    }
+    body = groups.map(gr => '<p class="sh-sec">' + esc(gr.g) + '</p><div class="rems">' + gr.items.map(r => remRowHTML(r, v === 'scheduled')).join('') + '</div>').join('');
+  } else body = '<div class="rems">' + items.map(r => remRowHTML(r, showList)).join('') + '</div>';
+  const armedClear = S.confirmDel === 'rem-clear';
+  const armedDel = S.confirmDel === 'rl-del';
+  const quick = v === 'done' ? '' : '<form class="rq" data-form="rem-quick" novalidate><label class="lbl sr" for="rq-in">Nuevo recordatorio</label><input type="text" id="rq-in" data-draft maxlength="120" autocomplete="off" placeholder="Nuevo recordatorio" enterkeyhint="done" value="' + esc(draft('rq-in', '')) + '"' + (S.readonly ? ' readonly' : '') + '><button type="submit" class="btn sm" id="rq-add"' + (S.readonly ? ' disabled' : '') + '>Agregar</button></form>';
+  return '<section class="card" id="card-rlist"><div class="rl-head"><button type="button" class="navbtn sm" id="rem-back" data-act="rem-view" data-v="home" aria-label="Volver a las listas">' + ICON.left + '</button>' +
+    '<h2>' + (isList ? '<i class="rdot" style="background:' + esc(l.color) + '"></i>' : '') + esc(title) + '</h2><span class="meta">' + (v === 'done' ? items.length : items.filter(r => !r.done).length) + '</span></div>' +
+    quick + body +
+    (v === 'done' && items.length ? '<button type="button" class="btn sm ' + (armedClear ? 'danger' : 'quiet') + '" id="rem-clear" data-act="rem-clear">' + (armedClear ? 'Toca otra vez para borrarlos' : 'Borrar completados') + '</button>' : '') +
+    (isList && l.id !== 'inbox' ? (S.hab.editList ? rlistFormHTML(l) : '<div class="row rl-acts"><button type="button" class="btn sm quiet" id="rl-edit" data-act="rl-edit">Editar lista</button><button type="button" class="btn sm ' + (armedDel ? 'danger' : 'quiet') + '" id="rl-del" data-act="rl-del">' + (armedDel ? 'Toca otra vez: sus recordatorios pasan a «Recordatorios»' : 'Borrar lista') + '</button></div>') : '') +
+    '</section>';
+}
 function remQuickAdd() {
   if (S.readonly || !S.loaded.reminders) return;
   const inp = $('#rq-in');
@@ -172,81 +232,4 @@ function renderHabitos() {
     '<button type="button" role="tab" id="ht-rem" data-act="htab" data-v="rem" aria-selected="' + (t === 'rem') + '">Recordatorios</button>' +
     '<button type="button" role="tab" id="ht-boss" data-act="htab" data-v="boss" aria-selected="' + (t === 'boss') + '">Jefes</button></div>';
   swap(root, seg + (t === 'hab' ? habSectionHTML() : t === 'rem' ? remSectionHTML() : bossSectionHTML()));
-}
-
-/* ---------- gimnasio ---------- */
-function lastGym() {
-  const tk = todayKey();
-  let best = null;
-  for (let i = 0; i < 90; i++) {
-    const d = S.days[addDays(tk, -i)];
-    if (!d || !Array.isArray(d.acts)) continue;
-    for (const a of d.acts) if (a && a.k === 'gym' && (!best || (a.at || 0) > (best.at || 0))) best = a;
-    if (best) return best;
-  }
-  return null;
-}
-function gymVolume(a) {
-  let sets = 0, kg = 0;
-  for (const x of a.ex || []) for (const s of x.sets || []) { sets++; kg += (Number(s.r) || 0) * (Number(s.kg) || 0); }
-  return { sets, kg: Math.round(kg) };
-}
-function setsText(sets) {
-  const ok = (sets || []).filter(s => s && (Number(s.r) > 0 || Number(s.kg) > 0));
-  if (!ok.length) return 'sin series';
-  const same = ok.every(s => String(s.r) === String(ok[0].r) && String(s.kg || '') === String(ok[0].kg || ''));
-  const one = s => (Number(s.r) || 0) + (Number(s.kg) > 0 ? ' × ' + numText(Number(s.kg)) + ' kg' : ' rep.');
-  if (same) return ok.length + ' × ' + one(ok[0]);
-  return ok.map(s => (Number(s.r) || 0) + (Number(s.kg) > 0 ? '×' + numText(Number(s.kg)) : '')).join(', ') + (ok.some(s => Number(s.kg) > 0) ? ' kg' : ' rep.');
-}
-function gymCopyEx(ex) { return (ex || []).map(x => ({ n: String(x.n || ''), sets: (x.sets || []).map(s => ({ r: s.r == null ? '' : String(s.r), kg: s.kg == null ? '' : String(s.kg) })) })); }
-function openGym(id) {
-  if (S.readonly || !S.daysLoaded) return;
-  let st;
-  if (id) {
-    const a = (getDay(S.viewKey).acts || []).find(x => x.id === id);
-    if (!a) return;
-    st = { kind: 'gym', step: 'gym', editId: id, name: a.title || String(a.name || '').replace(/^Gimnasio:?\s*/, ''), min: String(a.min || 60), lv: GYM_LEVELS.some(l => l.k === a.lv) ? a.lv : 'moderada', ex: gymCopyEx(a.ex), err: '', saveRt: false, q: '' };
-  } else st = { kind: 'gym', step: 'gym', editId: null, name: '', min: '60', lv: 'moderada', ex: [], err: '', saveRt: false, q: '' };
-  if (S.sheet) { stopScan(); S.sheet = st; renderSheet(); const c = $('#sheet-card'); if (c) c.scrollTop = 0; } else openSheet(st);
-}
-function gymEstimate(st) {
-  const perH = exPerH(), min = parseInt(st.min, 10), lv = GYM_LEVELS.find(l => l.k === st.lv) || GYM_LEVELS[1];
-  const vol = gymVolume({ ex: st.ex.map(x => ({ sets: x.sets.map(s => ({ r: parseNum(s.r), kg: parseNum(s.kg) })) })) });
-  const parts = [];
-  if (perH && min > 0) parts.push('≈ ' + fmtInt(r10((lv.met - 1) * perH * min / 60)) + ' kcal además de tu gasto en reposo');
-  else if (!perH) parts.push('Registra tu peso en Progreso para estimar las calorías');
-  if (st.ex.length) parts.push(plural(st.ex.length, 'ejercicio', 'ejercicios'), plural(vol.sets, 'serie', 'series'));
-  if (vol.kg) parts.push(fmtInt(vol.kg) + ' kg levantados');
-  return parts.join(' · ');
-}
-function shGymHTML(st) {
-  if (st.step === 'pick') return shGymPickHTML(st);
-  const last = st.editId ? null : lastGym();
-  const rts = S.routines.slice().sort(byCreated);
-  const start = !st.editId && (last || rts.length) ? '<p class="sh-sec">Empezar desde</p><div class="toggles gym-rts">' +
-      (last ? '<button type="button" class="tgl" id="gym-last" data-act="gym-last">Repetir el último<small>' + esc(last.title || last.name || 'Gimnasio') + '</small></button>' : '') +
-      rts.map(r => '<span class="gym-rt"><button type="button" class="tgl" id="gym-rt-' + esc(r.id) + '" data-act="gym-rt" data-id="' + esc(r.id) + '">' + esc(r.name) + '<small>' + plural((r.ex || []).length, 'ejercicio', 'ejercicios') + '</small></button>' +
-        (st.rtManage ? '<button type="button" class="xbtn' + (S.confirmDel === 'rt:' + r.id ? ' armed' : '') + '" id="gym-rtx-' + esc(r.id) + '" data-act="gym-rtdel" data-id="' + esc(r.id) + '">' + (S.confirmDel === 'rt:' + r.id ? '¿Borrar?' : 'Borrar') + '</button>' : '') + '</span>').join('') + '</div>' +
-      (rts.length ? '<button type="button" class="link" id="gym-rtm" data-act="gym-rtmanage">' + (st.rtManage ? 'Listo' : 'Administrar rutinas') + '</button>' : '') : '';
-  const exHTML = st.ex.map((x, i) => '<div class="gx"><div class="gx-h"><span class="gx-n">' + esc(x.n) + '</span><button type="button" class="xbtn" id="gx-del-' + i + '" data-act="gym-xdel" data-i="' + i + '">Quitar</button></div>' +
-      '<div class="gsets">' + x.sets.map((s, j) => '<div class="gset"><span class="gset-n">' + (j + 1) + '</span>' +
-        '<label class="lbl sr" for="gs-' + i + '-' + j + '-r">Repeticiones de la serie ' + (j + 1) + '</label><input type="text" inputmode="numeric" id="gs-' + i + '-' + j + '-r" data-gs="' + i + ':' + j + ':r" autocomplete="off" placeholder="reps" value="' + esc(s.r) + '">' +
-        '<span class="gset-x">×</span><label class="lbl sr" for="gs-' + i + '-' + j + '-kg">Kilos de la serie ' + (j + 1) + '</label><input type="text" inputmode="decimal" id="gs-' + i + '-' + j + '-kg" data-gs="' + i + ':' + j + ':kg" autocomplete="off" placeholder="kg" value="' + esc(s.kg) + '"><span class="gset-u">kg</span>' +
-        (x.sets.length > 1 ? '<button type="button" class="gset-del" id="gs-del-' + i + '-' + j + '" data-act="gym-sdel" data-i="' + i + '" data-j="' + j + '" aria-label="Quitar serie ' + (j + 1) + '">×</button>' : '<span></span>') + '</div>').join('') + '</div>' +
-      '<button type="button" class="btn sm quiet" id="gs-add-' + i + '" data-act="gym-sadd" data-i="' + i + '">+ Serie</button></div>').join('');
-  return sheetTop(st.editId ? 'Editar entrenamiento' : 'Entrenamiento de gimnasio') +
-    start +
-    '<form class="sh-form" data-form="sh-gym" novalidate>' +
-      '<div class="field"><label class="lbl" for="gy-name">Nombre (opcional)</label><input type="text" id="gy-name" data-gy="name" maxlength="50" autocomplete="off" placeholder="Pierna, pecho y tríceps, full body…" value="' + esc(st.name) + '"></div>' +
-      '<div class="field"><label class="lbl" for="gy-min">Duración (minutos)</label><div class="amt-row"><input type="text" inputmode="numeric" id="gy-min" data-gy="min" autocomplete="off" value="' + esc(st.min) + '">' +
-        [30, 45, 60, 90].map(v => '<button type="button" class="tgl q" id="gy-m-' + v + '" data-act="gym-min" data-v="' + v + '" aria-pressed="' + (String(v) === String(st.min)) + '">' + v + '</button>').join('') + '</div></div>' +
-      '<div class="field"><span class="lbl">Intensidad</span><div class="toggles lv3">' + GYM_LEVELS.map(l => '<button type="button" class="tgl" id="gy-lv-' + l.k + '" data-act="gym-lv" data-v="' + l.k + '" aria-pressed="' + (st.lv === l.k) + '">' + l.label + '<small>' + l.sub + '</small></button>').join('') + '</div></div>' +
-      '<p class="sh-sec">Ejercicios</p>' + (st.ex.length ? exHTML : '<p class="hint">Agrega los ejercicios que hiciste con sus series, repeticiones y kilos. Si no quieres el detalle, guarda solo los minutos.</p>') +
-      '<button type="button" class="btn quiet" id="gym-addx" data-act="gym-addx">Agregar ejercicio</button>' +
-      '<p class="hint" id="gym-est">' + esc(gymEstimate(st)) + '</p>' +
-      (!st.editId ? '<button type="button" class="switch" id="gym-rtsave" data-act="gym-rtsave" aria-pressed="' + !!st.saveRt + '"><span class="sw"></span>Guardar también como rutina</button>' : '') +
-      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="gym-save"' + (S.readonly ? ' disabled' : '') + '>' + (st.editId ? 'Guardar cambios' : 'Guardar entrenamiento') + '</button>' +
-    '</form>';
 }

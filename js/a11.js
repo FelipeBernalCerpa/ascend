@@ -1,4 +1,76 @@
 'use strict';
+function gDayActive(k) {
+  const d = S.days[k];
+  if (!d) return false;
+  const hs = habDayStats(k);
+  return hs.done > 0 || dayExercise(d) || dayWaterMet(d) || sleepHours(d.sleep) != null || (Array.isArray(d.food) && d.food.length > 0);
+}
+function gTotalXP() {
+  let t = 0;
+  for (const k of Object.keys(S.days)) t += gDayXP(k);
+  return t + (typeof bossBonusXP === 'function' ? bossBonusXP() : 0) + (typeof retoXP === 'function' ? retoXP() : 0);
+}
+function gCurStreak() {
+  const tk = todayKey();
+  let k = gDayActive(tk) ? tk : addDays(tk, -1);
+  let n = 0;
+  while (gDayActive(k)) { n++; k = addDays(k, -1); }
+  return n;
+}
+function gDaysInactive() {
+  const tk = todayKey();
+  for (let i = 0; i < 400; i++) if (gDayActive(addDays(tk, -i))) return i;
+  return 400;
+}
+function gameStats() {
+  const raw = gTotalXP();
+  const di = gDaysInactive();
+  const factor = 1 - Math.min(0.3, Math.max(0, di - 3) * 0.02);
+  const xp = Math.round(raw * factor);
+  let ri = 0;
+  for (let i = 0; i < RANKS.length; i++) if (xp >= RANKS[i].min) ri = i;
+  const r = RANKS[ri], next = RANKS[ri + 1];
+  let divName = '', divNow = r.min, divEnd = r.min, barPct = 0, toNext = 0, nextLabel = '';
+  if (next) {
+    const third = (next.min - r.min) / 3;
+    let d = Math.floor((xp - r.min) / third);
+    if (d > 2) d = 2; if (d < 0) d = 0;
+    divName = ['III', 'II', 'I'][d];
+    divNow = Math.round(r.min + d * third);
+    divEnd = Math.round(r.min + (d + 1) * third);
+    barPct = Math.max(0, Math.min(100, Math.round((xp - divNow) / (divEnd - divNow) * 100)));
+    toNext = Math.max(0, divEnd - xp);
+    const nextName = d < 2 ? r.name + ' ' + ['II', 'I'][d] : next.name + ' III';
+    nextLabel = 'Te faltan ' + fmtInt(toNext) + ' XP para ' + nextName + '.';
+  } else {
+    const lvl = Math.floor((xp - r.min) / 5000) + 1;
+    divNow = r.min + (lvl - 1) * 5000; divEnd = r.min + lvl * 5000;
+    barPct = Math.max(0, Math.min(100, Math.round((xp - divNow) / 5000 * 100)));
+    toNext = Math.max(0, divEnd - xp);
+    nextLabel = 'Leyenda nivel ' + lvl + ' · ' + fmtInt(toNext) + ' XP para el siguiente.';
+  }
+  const streak = gCurStreak();
+  return { raw, xp, rankObj: r, divName, divNow, divEnd, barPct, toNext, nextLabel, streak,
+    shields: Math.min(3, Math.floor(streak / 7)), todayXp: gDayXP(todayKey()), decaying: di > 3 && raw > 0 };
+}
+function gameCardHTML() {
+  if (!S.daysLoaded || !S.loaded.settings) return '<section class="card game" id="card-game"><p class="empty">Cargando tu progreso…</p></section>';
+  const g = gameStats(), r = g.rankObj, rn = esc(r.name + (g.divName ? ' ' + g.divName : ''));
+  return '<section class="card game" id="card-game">' +
+    '<div class="g-top">' +
+      '<div class="g-badge" style="--rc:' + r.color + '"><span class="g-ic">' + r.icon + '</span><small>' + esc((r.name + (g.divName ? ' ' + g.divName : '')).toUpperCase()) + '</small></div>' +
+      '<div class="g-meta"><div class="g-rank">' + rn + '</div><div class="g-sub">' + fmtInt(g.raw) + ' XP en total</div></div>' +
+      (g.todayXp ? '<span class="g-today">+' + g.todayXp + ' hoy</span>' : '') +
+    '</div>' +
+    '<div class="g-xprow"><span>' + fmtInt(g.divNow) + ' XP</span><span>' + fmtInt(g.divEnd) + ' XP</span></div>' +
+    '<div class="g-bar"><i style="width:' + g.barPct + '%"></i></div>' +
+    '<div class="g-hint">' + esc(g.nextLabel) + '</div>' +
+    '<div class="g-streak"><span class="g-flame">🔥</span><div class="g-stxt"><b>' + g.streak + (g.streak === 1 ? ' día' : ' días') + '</b><small>' + (g.streak ? 'tu racha' : 'empieza una racha hoy') + '</small></div>' +
+      '<div class="g-shields" title="Escudos de racha">' + [0, 1, 2].map(i => '<span class="g-sh' + (i < g.shields ? ' on' : '') + '">🛡️</span>').join('') + '</div></div>' +
+    (g.decaying ? '<p class="g-decay">Tu nivel bajó un poco mientras descansabas. Vuelve hoy y lo recuperas en días.</p>' : '') +
+    '</section>';
+}
+
 function achStats() {
   const keys = Object.keys(S.days);
   const act = new Set(), water = new Set();
@@ -267,51 +339,4 @@ function weekHTML() {
   html += '</div>';
   return '<section class="card" id="card-week"><div class="card-h"><h2>Tu semana</h2><span class="meta">Toca un día para abrirlo</span></div>' + html +
     '<p class="legend"><span class="lg"><i data-t="ok"></i>Cumplido</span><span class="lg"><i data-t="warn"></i>A medias</span><span class="lg"><i data-t="crit"></i>Bajo</span><span class="lg"><i></i>Sin registro</span></p></section>';
-}
-function measureHTML(kind) {
-  const isW = kind === 'weight', field = kind, unit = isW ? 'kg' : 'cm', title = isW ? 'Peso' : 'Estatura';
-  const every = isW ? 7 : 28;
-  const list = S.measures.filter(m => hasNum(m[field])).sort(byDate);
-  const last = list[list.length - 1], prev = list[list.length - 2];
-  const tk = todayKey();
-  let top;
-  if (!S.loaded.measures) top = '<p class="empty">Cargando tus mediciones…</p>';
-  else if (!last) top = '<p class="empty">Aún no hay registros de ' + title.toLowerCase() + '. Agrega el primero abajo.</p>';
-  else {
-    const delta = prev ? Number(last[field]) - Number(prev[field]) : null;
-    const next = addDays(last.date, every), due = next <= tk;
-    const sign = d => (d > 0 ? '+' : d < 0 ? '−' : '±');
-    top = '<div class="m-top"><div><span class="big">' + fmtNum(last[field], 1, 1) + '</span><span class="unit">' + unit + '</span></div>' +
-      '<div class="m-meta"><span>' + fmtDate(last.date) + '</span>' + (delta != null ? '<span class="delta">' + sign(delta) + fmtNum(Math.abs(delta), 1, 1) + ' ' + unit + ' desde el ' + fmtShort(prev.date) + '</span>' : '') + '</div></div>' +
-      '<p class="pill ' + (due ? 'accent' : 'muted') + ' next">' + (due ? (isW ? 'Toca pesarte esta semana' : 'Ya puedes medirte este mes') : (isW ? 'Próxima pesada: ' : 'Próxima medición: ') + fmtDay(next)) + '</p>';
-    S.charts[kind] = { points: list.map(m => ({ x: parseKey(m.date).getTime(), y: Number(m[field]) })), unit, dec: 1, label: title + ' en el tiempo' };
-    top += '<div class="chart" data-chart="' + kind + '"></div>';
-  }
-  const tip = isW
-    ? 'Pésate una vez por semana, en ayunas, después de ir al baño y en la misma báscula.'
-    : 'Mídete una vez al mes, en la mañana, sin zapatos y con los talones contra la pared. En la tarde mides hasta 1 cm menos por la compresión normal de la columna.';
-  const dId = kind + '-date', vId = kind + '-val';
-  const dv = draft(dId, tk);
-  let soon = '';
-  if (!isW && last) {
-    const since = diffDays(last.date, dv || tk);
-    if (since >= 0 && since < 28) soon = '<p class="hint warn-t">Tu última medición fue hace ' + since + (since === 1 ? ' día' : ' días') + '. El hueso cambia en meses: la próxima es el ' + fmtDay(addDays(last.date, 28)) + '.</p>';
-  }
-  const rows = list.slice().reverse().map((m, i, arr) => {
-    const p = arr[i + 1];
-    const dd = p ? Number(m[field]) - Number(p[field]) : null;
-    const tag = 'm:' + m.id + ':' + field;
-    const armed = S.confirmDel === tag;
-    return '<div class="hrow"><span class="h-date">' + fmtShort(m.date) + '</span><span class="h-val">' + fmtNum(m[field], 1, 1) + ' ' + unit + '</span><span class="h-delta">' +
-      (dd == null ? '' : (dd > 0 ? '+' : dd < 0 ? '−' : '±') + fmtNum(Math.abs(dd), 1, 1)) + '</span>' +
-      '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="del-' + kind + '-' + m.id + '" data-act="m-del" data-id="' + esc(m.id) + '" data-field="' + field + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
-  }).join('');
-  const hist = list.length ? '<details class="hist" data-hist="' + kind + '"' + (S.openHist === kind ? ' open' : '') + '><summary>Historial (' + list.length + ')</summary>' + rows + '</details>' : '';
-  return '<section class="card" id="card-' + kind + '"><div class="card-h"><h2>' + title + '</h2>' + (isW ? '<span class="meta">1 vez por semana</span>' : '<span class="meta">1 vez al mes</span>') + '</div>' + top +
-    '<p class="hint">' + tip + '</p>' +
-    '<form class="form" data-form="' + kind + '" novalidate><div class="grid2">' +
-      '<div class="field"><label class="lbl" for="' + dId + '">Fecha</label><input type="date" id="' + dId + '" data-draft max="' + tk + '" value="' + esc(dv) + '"></div>' +
-      '<div class="field"><label class="lbl" for="' + vId + '">' + title + ' (' + unit + ')</label><input type="text" inputmode="decimal" id="' + vId + '" data-draft value="' + esc(draft(vId, '')) + '"></div>' +
-    '</div>' + soon + '<p class="form-err">' + esc(S.formErr[kind] || '') + '</p>' +
-    '<button type="submit" class="btn" id="' + kind + '-save"' + ro() + '>' + (isW ? 'Guardar peso' : 'Guardar estatura') + '</button></form>' + hist + '</section>';
 }

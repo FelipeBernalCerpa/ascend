@@ -1,4 +1,91 @@
 'use strict';
+async function secRun(st, label, fn) {
+  if (st.busy) return;
+  st.busy = label; st.err = ''; renderSheet();
+  try { await fn(); }
+  catch (e) {
+    st.busy = '';
+    st.err = (e && e.secMsg) || ((e && e.name === 'OperationError') ? 'La frase no es correcta.' : (e && e.message && /Todavía se están guardando/.test(e.message)) ? e.message : 'No se pudo completar. Revisa tu conexión e intenta de nuevo.');
+    if (S.sheet === st) renderSheet();
+    return;
+  }
+  st.busy = '';
+}
+const secErr = m => { const e = new Error(m); e.secMsg = m; return e; };
+function secSubmit(kind) {
+  const st = S.sheet;
+  if (!st || st.kind !== 'sec' || st.busy) return true;
+  if (kind === 'sec-von') {
+    const p1 = secVal('sv-p1'), p2 = secVal('sv-p2');
+    const pe = secPassErr(p1, S.userEmail, true);
+    if (pe) { sheetErr(st, pe); return true; }
+    if (p1 !== p2) { sheetErr(st, 'Las dos frases no coinciden.'); return true; }
+    st.pass = p1; st.remember = !!($('#sv-rem') && $('#sv-rem').checked);
+    st.code = secNewCode(); st.purpose = 'enable';
+    goStep('vcode');
+    return true;
+  }
+  if (kind === 'sec-vpass') {
+    const cur = secVal('sv-cur'), p1 = secVal('sv-p1'), p2 = secVal('sv-p2');
+    const pe = secPassErr(p1, S.userEmail, true);
+    if (pe || p1 !== p2) { sheetErr(st, pe || 'Las dos frases nuevas no coinciden.'); return true; }
+    secRun(st, 'Cambiando la frase…', async () => {
+      try { await secVaultRewrap(cur, { pass: p1 }); } catch (e) { if (e && e.name === 'OperationError') throw secErr('La frase actual no es correcta.'); throw e; }
+      goStep('vman'); toast('Frase secreta cambiada.');
+    });
+    return true;
+  }
+  if (kind === 'sec-vrec') {
+    const cur = secVal('sv-cur');
+    secRun(st, 'Comprobando…', async () => {
+      try { const raw = await secRawFrom(SEC.vault.meta, cur); raw.fill(0); } catch (e) { throw secErr('La frase no es correcta.'); }
+      st.pass = cur; st.code = secNewCode(); st.purpose = 'newrec';
+      st.busy = ''; goStep('vcode');
+    });
+    return true;
+  }
+  if (kind === 'sec-voff') {
+    const cur = secVal('sv-cur');
+    secRun(st, 'Descifrando tus registros… no cierres Ascend.', async () => {
+      try { await secVaultDisable(cur); } catch (e) { if (e && e.name === 'OperationError') throw secErr('La frase no es correcta.'); throw e; }
+      closeSheet(); toast('Cifrado de extremo a extremo desactivado.'); renderAjustes();
+    });
+    return true;
+  }
+  if (kind === 'sec-mfa') { secMfaVerify(st); return true; }
+  if (kind === 'sec-pass') {
+    const p1 = secVal('sp-p1'), p2 = secVal('sp-p2');
+    const pe = secPassErr(p1, S.userEmail);
+    if (pe || p1 !== p2) { sheetErr(st, pe || 'Las dos contraseñas no coinciden.'); return true; }
+    secRun(st, 'Guardando…', async () => {
+      const r = await sb.auth.updateUser({ password: p1 });
+      if (r && r.error) {
+        const m = String(r.error.message || '');
+        throw secErr(/reauth|nonce/i.test(m) ? 'Por seguridad, cierra sesión y usa «Olvidé mi contraseña» para cambiarla.' : /different|same/i.test(m) ? 'La contraseña nueva debe ser distinta a la anterior.' : /aal2|assurance/i.test(m) ? 'Entra con tu código de dos pasos para cambiarla.' : /weak|pwned|leaked/i.test(m) ? 'Esa contraseña apareció en filtraciones conocidas: elige otra.' : 'No se pudo cambiar: ' + m);
+      }
+      closeSheet(); toast('Contraseña cambiada.');
+    });
+    return true;
+  }
+  if (kind === 'sec-del') {
+    if (String(secVal('sd-confirm')).trim().toUpperCase() !== 'ELIMINAR') { sheetErr(st, 'Escribe ELIMINAR para confirmar.'); return true; }
+    secRun(st, 'Eliminando tu cuenta…', async () => {
+      saver.pend.clear();
+      const r = await sb.rpc('delete_my_account');
+      if (r && r.error) {
+        const m = String(r.error.message || '') + ' ' + String(r.error.code || '');
+        throw secErr(/delete_my_account|PGRST202|Could not find|does not exist/i.test(m) ? 'Esta opción aún no está activa en el servidor. Escríbele al administrador de Ascend.' : /dos pasos|mfa|aal/i.test(m) ? 'Entra con tu código de dos pasos para eliminar la cuenta.' : 'No se pudo eliminar. Revisa tu conexión e intenta de nuevo.');
+      }
+      await secKeyDel(store.userId);
+      secClearLocal();
+      try { await sb.auth.signOut({ scope: 'local' }); } catch (e) {}
+      try { sessionStorage.setItem('ascend-out', 'deleted'); } catch (e) {}
+      location.reload();
+    });
+    return true;
+  }
+  return false;
+}
 function secClick(act, el) {
   const st = S.sheet;
   switch (act) {
@@ -299,59 +386,3 @@ const QUOTES = [
   { t: 'Nadie que haya dado lo mejor de sí mismo lo ha lamentado.', a: 'George Halas' },
   { t: 'La única persona a la que debes superar es a la que fuiste ayer.', a: 'Anónimo' }
 ];
-function quoteOfDay() {
-  if (!QUOTES.length) return null;
-  const k = (typeof todayKey === 'function') ? todayKey() : new Date().toISOString().slice(0, 10);
-  const d = (typeof parseKey === 'function') ? parseKey(k) : new Date(k);
-  const n = Math.floor(d.getTime() / 86400000);
-  return QUOTES[((n % QUOTES.length) + QUOTES.length) % QUOTES.length];
-}
-function quoteHTML() {
-  const q = quoteOfDay();
-  if (!q) return '';
-  return '<div class="quote-hoy" role="note"><p class="q-t">' + esc(q.t) + '</p><p class="q-a">' + esc(q.a) + '</p></div>';
-}
-
-/* ---------- v7: jefes finales editables ----------
-   Una meta grande dividida en etapas; cada etapa tiene hábitos que marcas. Al terminar todo, derrotas al jefe y ganas XP. */
-S.bosses = null; S.loaded.bosses = false;
-const MAX_BOSSES = 12, MAX_STAGES = 8, MAX_BITEMS = 12;
-const BOSS_ICONS = ['🧥', '🏃', '💪', '🏆', '🎯', '📚', '🧠', '🥇', '⛰️', '🔥', '💰', '🎸', '🩺', '🌱'];
-
-function bossesList() { return (S.bosses && Array.isArray(S.bosses.items) ? S.bosses.items : []).filter(b => b && b.id && b.name); }
-function saveBosses(items) {
-  S.bosses = { items: items.slice(0, MAX_BOSSES) };
-  saver.queue('config/bosses', clone(S.bosses), 200);
-}
-function bossProg(b) {
-  let total = 0, done = 0, active = 0, found = false;
-  const stages = Array.isArray(b.stages) ? b.stages : [];
-  stages.forEach((s, i) => {
-    const items = Array.isArray(s.items) ? s.items : [];
-    total += items.length;
-    const d = items.filter(x => x && x.done).length;
-    done += d;
-    if (!found && d < items.length) { active = i; found = true; }
-  });
-  if (!found) active = Math.max(0, stages.length - 1);
-  return { total, done, pct: total ? Math.round(done / total * 100) : 0, active, defeated: total > 0 && done >= total };
-}
-function stageDone(s) { const it = Array.isArray(s.items) ? s.items : []; return it.length > 0 && it.every(x => x && x.done); }
-function bossBonusXP() {
-  let xp = 0;
-  for (const b of bossesList()) {
-    for (const s of (b.stages || [])) if (stageDone(s)) xp += 40;
-    if (bossProg(b).defeated) xp += 150;
-  }
-  return xp;
-}
-
-function bossCardHTML(b) {
-  const p = bossProg(b);
-  return '<button type="button" class="bosscard' + (p.defeated ? ' won' : '') + '" id="bc-' + esc(b.id) + '" data-act="boss-open" data-id="' + esc(b.id) + '">' +
-    '<span class="bc-ic">' + esc(b.icon || '🎯') + '</span>' +
-    '<span class="bc-b"><span class="bc-n">' + esc(b.name) + '</span>' +
-      '<span class="bc-s">' + (p.defeated ? '¡Derrotado!' : 'Etapa ' + (p.active + 1) + ' de ' + (b.stages ? b.stages.length : 0)) + ' · ' + p.done + '/' + p.total + '</span>' +
-      '<span class="bc-bar"><i style="width:' + p.pct + '%"></i></span></span>' +
-    (p.defeated ? '<span class="bc-win">🏆</span>' : '') + '</button>';
-}

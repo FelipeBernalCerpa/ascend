@@ -1,4 +1,154 @@
 'use strict';
+function chatErrText(res, data) {
+  if (!res) return 'Sin conexión. Revisa tu internet e intenta de nuevo.';
+  const e = data && data.error;
+  if (res.status === 503) return 'El asistente con IA todavía no está activo en esta app.';
+  if (res.status === 401) return 'Tu sesión venció. Cierra sesión y vuelve a entrar.';
+  if (res.status === 429) return e === 'limit' ? 'Llegaste al límite de ' + (data.limit || '') + ' mensajes de hoy. Vuelve mañana.' : 'El asistente está muy ocupado hoy. Intenta más tarde.';
+  if (res.status === 400 || res.status === 413) return 'No pude enviar ese mensaje: es muy largo o está vacío.';
+  return 'No se pudo responder ahora. Intenta de nuevo en un momento.';
+}
+async function chatSend(text) {
+  text = String(text || '').trim().slice(0, 1500);
+  const c = S.chat;
+  if (!text || c.busy || S.readonly || !S.loaded.aichat) return;
+  c.items.push({ role: 'user', text, at: Date.now() });
+  c.busy = true;
+  c.err = '';
+  delete S.drafts['chat-in'];
+  renderChat();
+  let res = null, data = null;
+  try {
+    const sess = await sb.auth.getSession();
+    const tok = sess && sess.data && sess.data.session ? sess.data.session.access_token || '' : '';
+    const messages = c.items.slice(-12).map(m => ({ role: m.role, content: String(m.text || '').slice(0, 3000) }));
+    res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: JSON.stringify({ messages, context: aiContext() }) });
+    try { data = await res.json(); } catch (e) { data = null; }
+  } catch (e) { res = null; }
+  c.busy = false;
+  if (res && res.ok && data && typeof data.text === 'string') {
+    c.items.push({ role: 'assistant', text: data.text.slice(0, 6000), prop: data.proposal && typeof data.proposal === 'object' ? data.proposal : null, habits: Array.isArray(data.habits) ? data.habits.slice(0, 6) : null, at: Date.now() });
+    if (typeof data.remaining === 'number') c.remaining = data.remaining;
+    if (c.items.length > MAX_CHAT) c.items = c.items.slice(-MAX_CHAT);
+    saveChat();
+  } else {
+    c.items.pop();
+    S.drafts['chat-in'] = text;
+    c.err = chatErrText(res, data);
+  }
+  renderChat();
+  if (!c.err) focusEl('chat-in');
+}
+function applyProposal(i) {
+  const it = S.chat.items[i];
+  if (!it || !it.prop || it.applied || S.readonly || !S.loaded.settings) return;
+  const chk = proposalCheck(it.prop), o = chk.out;
+  if (!Object.keys(o).length) return;
+  const nutri = Object.assign({}, S.settings.nutri);
+  for (const k of NK) if (o[k] != null) nutri[k] = o[k];
+  S.settings.nutri = nutri;
+  if (o.waterGoal != null) S.settings.waterGoal = o.waterGoal;
+  if (o.sleepGoal != null) S.settings.sleepGoal = o.sleepGoal;
+  if (o.stepGoal != null) S.settings.stepGoal = o.stepGoal;
+  saveSettings();
+  it.applied = true;
+  saveChat();
+  renderGuia();
+  toast('Metas aplicadas.' + (chk.skipped.length ? ' No cambié ' + chk.skipped.join(', ') + '.' : ''));
+}
+
+/* ---------- eventos de lo nuevo ---------- */
+function planClick(act, el, id) {
+  const st = S.sheet;
+  switch (act) {
+    case 'plan-open': openPlan(); return true;
+    case 'pl-set':
+      if (!st || st.kind !== 'plan') return true;
+      for (const f of ['birth', 'height', 'weight']) { const x = document.getElementById('pl-' + f); if (x) st.in[f] = x.value; }
+      st.in[el.dataset.f] = el.dataset.v;
+      st.err = '';
+      renderSheet();
+      return true;
+    case 'pl-tog': {
+      if (!st || st.kind !== 'plan') return true;
+      for (const f of ['birth', 'height', 'weight']) { const x = document.getElementById('pl-' + f); if (x) st.in[f] = x.value; }
+      const arr = st.in[el.dataset.f], v = el.dataset.v, j = arr.indexOf(v);
+      if (j >= 0) arr.splice(j, 1); else arr.push(v);
+      renderSheet();
+      return true;
+    }
+    case 'chat-quick': chatSend(el.dataset.q); return true;
+    case 'chat-clear': confirmOrDo('chat-clear', () => { S.chat.items = []; S.chat.err = ''; saveChat(); }, renderGuia); return true;
+    case 'ai-apply': applyProposal(Number(el.dataset.i)); return true;
+    case 'gd-del': {
+      const sec = el.dataset.sec;
+      if (!S.loaded.guide || !GUIDE_SECTIONS.some(x => x.k === sec)) return true;
+      confirmOrDo('gd:' + id, () => { S.guide = Object.assign({}, S.guide); S.guide[sec] = guideList(sec).filter(x => x.id !== id); saveGuide(); }, renderGuia);
+      return true;
+    }
+    case 'shop-suggest': suggestShop(); return true;
+    case 'hb-del': {
+      const k = el.dataset.k;
+      if (!S.loaded.habits) return true;
+      confirmOrDo('hb:' + k, () => { saveHabits(habitsList().filter(x => x.k !== k)); }, renderAjustes);
+      return true;
+    }
+    case 'hb-reset':
+      if (S.readonly || !S.loaded.habits) return true;
+      S.habits = null;
+      delDoc('config/habits');
+      renderAjustes();
+      return true;
+    default: return false;
+  }
+}
+function planInput(t) {
+  if (t.dataset.pl && S.sheet && S.sheet.kind === 'plan') { S.sheet.in[t.dataset.pl] = t.value; return true; }
+  return false;
+}
+function planSubmit(kind) {
+  const f = document.querySelector('[data-form="' + kind + '"]');
+  switch (kind) {
+    case 'sh-plan': submitPlanForm(); return true;
+    case 'sh-plansave': savePlan(); return true;
+    case 'chat': chatSend(f ? ($('#chat-in', f) || {}).value : ''); return true;
+    case 'guide': submitGuide(f); return true;
+    case 'habit': submitHabit(f); return true;
+    default: return false;
+  }
+}
+
+function cleanProfile(d) {
+  const o = {};
+  if (GOALS.some(g => g.k === d.goal)) o.goal = d.goal;
+  if (d.pace === 'suave' || d.pace === 'moderado') o.pace = d.pace;
+  if (ACTIVITY.some(a => a.k === d.activity)) o.activity = d.activity;
+  if (Array.isArray(d.diet)) o.diet = d.diet.filter(k => DIETS.some(x => x.k === k));
+  if (Array.isArray(d.cond)) o.cond = d.cond.filter(k => CONDITIONS.some(x => x.k === k));
+  if (d.onboarded) o.onboarded = true;
+  if (d.plan && typeof d.plan === 'object') o.plan = { at: /^\d{4}-\d{2}-\d{2}$/.test(String(d.plan.at || '')) ? d.plan.at : '', maint: Number(d.plan.maint) || null, kcal: Number(d.plan.kcal) || null };
+  return o;
+}
+
+/* =====================================================================
+   Ascend v4: hábitos con recurrencia, recordatorios, gimnasio y análisis con IA
+   ===================================================================== */
+S.reminders = []; S.loaded.reminders = false;
+S.routines = []; S.loaded.routines = false;
+S.rlists = null; S.loaded.rlists = false;
+S.loaded.aianalysis = false;
+S.ana = { period: 'week', hperiod: 'week', busy: '', err: {}, items: [] };
+S.hab = { tab: ['rem', 'boss'].indexOf(lsGet('ascend-htab')) >= 0 ? lsGet('ascend-htab') : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
+IMPORT_COLS.push('reminders', 'routines');
+const MAX_REMS = 800, MAX_RLISTS = 30, MAX_ROUTINES = 30, MAX_ANA = 15;
+const isKey = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+const isHM = s => /^\d{2}:\d{2}$/.test(String(s || ''));
+const weekStart = k => addDays(k, -((parseKey(k).getDay() + 6) % 7));
+const monthStart = k => k.slice(0, 8) + '01';
+const monthEnd = k => { const d = parseKey(k); return keyOf(new Date(d.getFullYear(), d.getMonth() + 1, 0)); };
+const clampInt = (v, lo, hi, fb) => { const n = parseInt(v, 10); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fb; };
+const plural = (n, a, b) => n + ' ' + (n === 1 ? a : b);
+const dayWord = k => { const tk = todayKey(); return k === tk ? 'Hoy' : k === addDays(tk, 1) ? 'Mañana' : k === addDays(tk, -1) ? 'Ayer' : fmtDay(k); };
 async function authToken() {
   try { const s = await sb.auth.getSession(); return s && s.data && s.data.session ? s.data.session.access_token || '' : ''; } catch (e) { return ''; }
 }
@@ -227,69 +377,3 @@ function shHabDetailHTML(st) {
 }
 
 /* hoja: crear o editar un hábito */
-function openHabitEdit(k) {
-  if (S.readonly || !S.loaded.habits) return;
-  const h = k ? habs().find(x => x.k === k) : null;
-  const tk = todayKey();
-  const f = h ? { label: h.label, freq: h.freq, days: h.days.slice(), times: String(h.times), start: h.start || '', endMode: h.end ? 'date' : 'none', end: h.end || '', remind: h.remind, note: h.note }
-    : { label: '', freq: 'daily', days: [1, 2, 3, 4, 5], times: '3', start: tk, endMode: 'none', end: '', remind: '', note: '' };
-  const st = { kind: 'habit', step: 'edit', k: k || null, f, err: '' };
-  if (S.sheet) { S.sheet = st; renderSheet(); const c = $('#sheet-card'); if (c) c.scrollTop = 0; } else openSheet(st);
-  if (!k) focusEl('hf-label');
-}
-function shHabitHTML(st) {
-  const f = st.f, armed = S.confirmDel === 'hdel:' + st.k;
-  const tg = (act, v, on, label, extra, cls) => '<button type="button" class="tgl' + (cls ? ' ' + cls : '') + '" id="' + act + '-' + v + '" data-act="' + act + '" data-v="' + v + '" aria-pressed="' + !!on + '"' + (extra || '') + '>' + label + '</button>';
-  const durs = [[21, '21 días'], [30, '30 días'], [66, '66 días'], [90, '90 días']];
-  return sheetTop(st.k ? 'Editar hábito' : 'Nuevo hábito') +
-    '<form class="sh-form" data-form="sh-habit" novalidate>' +
-      '<div class="field"><label class="lbl" for="hf-label">Hábito</label><input type="text" id="hf-label" data-hf="label" maxlength="60" autocomplete="off" placeholder="Leer 10 minutos" value="' + esc(f.label) + '"></div>' +
-      '<div class="field"><span class="lbl">Frecuencia</span><div class="toggles">' + HFREQ.map(x => tg('hf-freq', x.k, f.freq === x.k, x.label)).join('') + '</div></div>' +
-      (f.freq === 'days' ? '<div class="field"><span class="lbl">Qué días</span><div class="toggles days">' + WD_ORDER.map(n => tg('hf-day', n, f.days.indexOf(n) >= 0, WD1[n], ' aria-label="' + WD[n] + '"')).join('') + '</div></div>' : '') +
-      (f.freq === 'weekly' ? '<div class="field"><span class="lbl">Cuántas veces por semana</span><div class="toggles">' + [1, 2, 3, 4, 5, 6, 7].map(n => tg('hf-times', n, String(n) === String(f.times), String(n))).join('') + '</div></div>' : '') +
-      (f.freq === 'monthly' ? '<div class="field"><label class="lbl" for="hf-times">Cuántas veces al mes</label><div class="amt-row"><input type="text" inputmode="numeric" id="hf-times" data-hf="times" autocomplete="off" value="' + esc(f.times) + '">' +
-        [1, 2, 4, 8, 12].map(n => tg('hf-times', n, String(n) === String(f.times), String(n), '', 'q')).join('') + '</div></div>' : '') +
-      '<div class="grid2"><div class="field"><label class="lbl" for="hf-start">Empieza</label><input type="date" id="hf-start" data-hf="start" value="' + esc(f.start) + '"></div>' +
-      '<div class="field"><label class="lbl" for="hf-remind">Aviso (opcional)</label><input type="time" id="hf-remind" data-hf="remind" value="' + esc(f.remind) + '"></div></div>' +
-      '<div class="field"><span class="lbl">Durante cuánto tiempo</span><div class="toggles">' + tg('hf-end', 'none', f.endMode === 'none', 'Sin fin') + tg('hf-end', 'date', f.endMode === 'date', 'Hasta una fecha') + '</div></div>' +
-      (f.endMode === 'date' ? '<div class="field"><label class="lbl" for="hf-endd">Termina el</label><input type="date" id="hf-endd" data-hf="end" value="' + esc(f.end) + '"></div>' +
-        '<div class="toggles">' + durs.map(x => tg('hf-dur', x[0], false, x[1])).join('') + '</div>' : '') +
-      '<div class="field"><label class="lbl" for="hf-note">Nota (opcional)</label><input type="text" id="hf-note" data-hf="note" maxlength="200" autocomplete="off" value="' + esc(f.note) + '"></div>' +
-      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="hf-save">' + (st.k ? 'Guardar cambios' : 'Crear hábito') + '</button>' +
-      (st.k ? '<button type="button" class="btn sm ' + (armed ? 'danger' : 'quiet') + '" id="hf-del" data-act="hab-del" data-k="' + esc(st.k) + '">' + (armed ? 'Toca otra vez para borrarlo' : 'Borrar hábito') + '</button>' : '') +
-    '</form>' +
-    '<p class="hint">Lo que ya marcaste se conserva aunque cambies la frecuencia. Los avisos salen mientras Ascend está abierta.</p>';
-}
-function habFormSync() {
-  const st = S.sheet;
-  if (!st || st.kind !== 'habit') return;
-  for (const [id, f] of [['hf-label', 'label'], ['hf-start', 'start'], ['hf-remind', 'remind'], ['hf-endd', 'end'], ['hf-note', 'note'], ['hf-times', 'times']]) { const el = document.getElementById(id); if (el) st.f[f] = el.value; }
-}
-function habSave() {
-  const st = S.sheet;
-  if (!st || st.kind !== 'habit' || S.readonly) return;
-  habFormSync();
-  const f = st.f, label = String(f.label || '').trim().slice(0, 60);
-  const list = habitsList().map(x => Object.assign({}, x));
-  const tk = todayKey();
-  let err = '';
-  const times = f.freq === 'monthly' ? parseInt(f.times, 10) : f.freq === 'weekly' ? parseInt(f.times, 10) : 0;
-  if (!label) err = 'Escribe el hábito.';
-  else if (list.some(x => x.k !== st.k && norm(x.label) === norm(label))) err = 'Ya tienes un hábito con ese nombre.';
-  else if (!st.k && list.length >= MAX_HABITS) err = 'Puedes tener hasta ' + MAX_HABITS + ' hábitos.';
-  else if (f.freq === 'days' && !f.days.length) err = 'Elige al menos un día.';
-  else if (f.freq === 'weekly' && !(times >= 1 && times <= 7)) err = 'Elige de 1 a 7 veces por semana.';
-  else if (f.freq === 'monthly' && !(times >= 1 && times <= 31)) err = 'Escribe de 1 a 31 veces al mes.';
-  else if (f.start && !isKey(f.start)) err = 'Revisa la fecha de inicio.';
-  else if (f.endMode === 'date' && !isKey(f.end)) err = 'Elige la fecha en que termina.';
-  else if (f.endMode === 'date' && f.end < (f.start || tk)) err = 'La fecha final debe ser después del inicio.';
-  if (err) { sheetErr(st, err); return; }
-  const h = { k: st.k || 'h-' + uid(), label, freq: f.freq, days: f.freq === 'days' ? WD_ORDER.filter(d => f.days.indexOf(d) >= 0) : [], times: times || 0, start: f.start || '', end: f.endMode === 'date' ? f.end : '', remind: isHM(f.remind) ? f.remind : '', note: String(f.note || '').trim().slice(0, 200) };
-  const i = list.findIndex(x => x.k === h.k);
-  if (i >= 0) { h.createdAt = list[i].createdAt; list[i] = h; } else { h.createdAt = Date.now(); list.push(h); }
-  saveHabits(list);
-  closeSheet();
-  renderActive();
-  toast(i >= 0 ? 'Hábito actualizado.' : 'Hábito creado: ' + label + '.');
-}

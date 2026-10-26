@@ -1,4 +1,72 @@
 'use strict';
+function summaryHTML() {
+  return '<section class="card" id="card-sum"><div class="card-h"><h2>Resumen para la cita</h2></div>' +
+    '<p class="prose">Junta los últimos 30 días, tus mediciones, exámenes, medicamentos y preguntas pendientes en un texto para mostrar o copiar.</p>' +
+    '<div class="row"><button type="button" class="btn" id="sum-build" data-act="sum-build">' + (S.summary ? 'Actualizar resumen' : 'Armar resumen') + '</button>' +
+    (S.summary ? '<button type="button" class="btn quiet" id="sum-copy" data-act="sum-copy">Copiar</button>' : '') + '</div>' +
+    (S.summary ? '<label class="lbl sr" for="sum-out">Resumen</label><textarea id="sum-out" class="sum-out" rows="16" readonly>' + esc(S.summary) + '</textarea>' + (S.copied ? '<p class="hint ok-t">Copiado.</p>' : '') : '') +
+  '</section>';
+}
+function buildSummary() {
+  const tk = todayKey(), L = [];
+  L.push('Resumen para la cita · ' + fmtDate(tk));
+  let days = 0, doses = 0, taken = 0, skipped = 0, sN = 0, sSum = 0, wN = 0, wSum = 0;
+  for (let i = 0; i < 30; i++) {
+    const k = addDays(tk, -i), d = S.days[k];
+    if (!d) continue;
+    days++;
+    const ds = dosesFor(k);
+    doses += ds.length;
+    for (const x of ds) { const r = d.meds && d.meds[x.key]; if (r && r.s === 'taken') taken++; else if (r && r.s === 'skipped') skipped++; }
+    const h = sleepHours(d.sleep); if (h != null) { sN++; sSum += h; }
+    const w = sum(d.water); if (w > 0) { wN++; wSum += w; }
+  }
+  L.push('');
+  L.push('Últimos 30 días (' + days + (days === 1 ? ' día' : ' días') + ' con registro)');
+  if (doses) L.push('· Medicamentos: ' + taken + ' de ' + doses + ' tomas marcadas como tomadas (' + Math.round(taken / doses * 100) + ' %). Saltadas: ' + skipped + '.');
+  if (sN) L.push('· Sueño promedio: ' + fmtNum(sSum / sN, 1) + ' h (' + sN + ' noches).');
+  if (wN) L.push('· Agua promedio: ' + fmtInt(wSum / wN) + ' ml al día (' + wN + ' días).');
+  const rs = statsRange(30);
+  if (rs.fN) L.push('· Alimentación registrada (' + rs.fN + (rs.fN === 1 ? ' día' : ' días') + '), promedio por día: ' + fmtInt(rs.nut.kcal / rs.fN) + ' kcal; proteína ' + fmtNut('p', rs.nut.p / rs.fN) + ' g; grasas ' + fmtNut('f', rs.nut.f / rs.fN) + ' g (saturadas ' + fmtNut('sf', rs.nut.sf / rs.fN) + ' g); carbohidratos ' + fmtNut('c', rs.nut.c / rs.fN) + ' g; azúcar ' + fmtNut('s', rs.nut.s / rs.fN) + ' g; fibra ' + fmtNut('fi', rs.nut.fi / rs.fN) + ' g; sodio ' + fmtInt(rs.nut.na / rs.fN) + ' mg.');
+  if (rs.stN) L.push('· Pasos promedio: ' + fmtInt(rs.stSum / rs.stN) + ' al día (' + rs.stN + (rs.stN === 1 ? ' día' : ' días') + ').');
+  if (rs.ex) L.push('· Días con ejercicio: ' + rs.ex + (rs.intense ? ' (' + rs.intense + ' con cardio intenso)' : '') + '.');
+  if (!days) L.push('· Aún no hay días registrados.');
+  const ms = [['weight', 'Peso', 'kg'], ['height', 'Estatura', 'cm']];
+  const mLines = [];
+  for (const [field, label, unit] of ms) {
+    const list = S.measures.filter(m => hasNum(m[field])).sort(byDate);
+    const a = list[list.length - 1], b = list[list.length - 2];
+    if (a) mLines.push(label + ': ' + fmtNum(a[field], 1, 1) + ' ' + unit + ' (' + fmtDate(a.date) + ')' + (b ? '. Anterior: ' + fmtNum(b[field], 1, 1) + ' ' + unit + ' (' + fmtDate(b.date) + ')' : '') + '.');
+  }
+  const bs = bmiSeries();
+  if (bs.length) { const bb = bs[bs.length - 1]; mLines.push('IMC: ' + fmtNum(bb.bmi, 1, 1) + ' (' + fmtDate(bb.date) + ').'); }
+  const fats = S.measures.filter(m => hasNum(m.fat)).sort(byDate);
+  if (fats.length) { const f = fats[fats.length - 1]; mLines.push('Grasa corporal: ' + fmtNum(f.fat, 1, 1) + ' % (' + fmtDate(f.date) + ').'); }
+  const mus = S.measures.filter(m => hasNum(m.muscle)).sort(byDate);
+  if (mus.length) { const f = mus[mus.length - 1]; mLines.push('Masa muscular: ' + fmtNum(f.muscle, 1, 1) + ' kg (' + fmtDate(f.date) + ').'); }
+  if (mLines.length) { L.push(''); L.push('Mediciones'); mLines.forEach(x => L.push('· ' + x)); }  const groups = new Map();
+  for (const l of S.labs.slice().sort(byDate)) groups.set(labGroupKey(l), l);
+  if (groups.size) {
+    L.push(''); L.push('Últimos exámenes');
+    for (const l of groups.values()) { const r = rangeShort(l); L.push('· ' + labName(l) + ': ' + fmtNum(l.value) + (l.unit ? ' ' + l.unit : '') + ' (' + fmtDate(l.date) + ')' + (r ? ', referencia ' + r : '') + '.'); }
+  }
+  const active = S.meds.filter(m => m.active);
+  if (active.length) {
+    L.push(''); L.push('Medicamentos actuales');
+    for (const m of active) L.push('· ' + (m.name || 'Sin nombre') + (m.dose ? ' ' + m.dose : '') + ': ' + medSchedText(m) + '.');
+  }
+  const pend = S.questions.filter(q => !q.done);
+  if (pend.length) {
+    L.push(''); L.push('Preguntas pendientes');
+    for (const d of DOCTORS) {
+      const qs = pend.filter(q => (q.doctor || 'otro') === d.k).sort(byCreated);
+      if (!qs.length) continue;
+      L.push(d.label + ':');
+      for (const q of qs) L.push('· ' + q.text);
+    }
+  }
+  return L.join('\n');
+}
 function renderSalud() {
   const root = $('#view-salud');
   if (!root) return;
@@ -272,132 +340,4 @@ function submitLab(form) {
   S.openLab = labGroupKey(data);
   renderSalud();
   putDoc('labs/' + id, data);
-}
-function submitQ(form) {
-  const text = (($('#q-new', form) || {}).value || '').trim();
-  const doctor = (($('#q-doc', form) || {}).value) || 'otro';
-  S.formErr.q = text ? '' : 'Escribe la pregunta.';
-  if (!text || !S.loaded.questions) { renderSalud(); return; }
-  const data = { text, doctor, done: false, answer: '', createdAt: Date.now() };
-  const id = store.newId('questions');
-  S.questions.push(Object.assign({ id }, data));
-  delete S.drafts['q-new'];
-  renderSalud();
-  putDoc('questions/' + id, data);
-}
-
-function onClick(e) {
-  const el = e.target.closest('[data-tab],[data-go],[data-act]');
-  if (!el || el.disabled) return;
-  if (el.dataset.tab) { setTab(el.dataset.tab); return; }
-  if (el.dataset.go) { setTab(el.dataset.go); return; }
-  const act = el.dataset.act, id = el.dataset.id;
-  switch (act) {
-    case 'day': {
-      const nk = addDays(S.viewKey, Number(el.dataset.d) || 0);
-      if (nk > todayKey()) return;
-      S.viewKey = nk; ensureDay(nk); renderHoy();
-      break;
-    }
-    case 'day-today': S.viewKey = todayKey(); renderHoy(); break;
-    case 'goto-day': S.viewKey = el.dataset.day; ensureDay(S.viewKey); setTab('hoy'); break;
-    case 'dose': doseAction(el.dataset.op, el.dataset.key, el.dataset.hm, el); break;
-    case 'water':
-      if (mutDay(S.viewKey, d => { d.water = (d.water || []).concat(Number(el.dataset.ml) || 0); })) renderHoy(['water', 'meters']);
-      break;
-    case 'water-undo':
-      if (mutDay(S.viewKey, d => { d.water = (d.water || []).slice(0, -1); })) renderHoy(['water', 'meters']);
-      break;
-    case 'boost':
-      if (mutDay(S.viewKey, d => { d.boost = Object.assign({}, d.boost); const k = el.dataset.k; if (d.boost[k]) delete d.boost[k]; else d.boost[k] = true; })) renderHoy(['boost', 'meters']);
-      break;
-    case 'feel':
-      if (mutDay(S.viewKey, d => { const f = el.dataset.f, v = Number(el.dataset.v); if (d[f] === v) delete d[f]; else d[f] = v; })) renderHoy(['feel']);
-      break;
-    case 'sleep-fill':
-      if (mutDay(S.viewKey, d => { d.sleep = { bed: S.settings.bedTarget, wake: S.settings.wakeTarget }; })) renderHoy(['sleep', 'meters']);
-      break;
-    case 'm-del': {
-      const fld = el.dataset.field;
-      confirmOrDo('m:' + id + ':' + fld, () => delMeasure(id, fld === 'comp' ? ['fat', 'muscle'] : [fld]), renderProgreso);
-      break;
-    }
-    case 'lab-open': S.openLab = S.openLab === el.dataset.g ? null : el.dataset.g; renderSalud(); break;
-    case 'lab-del': confirmOrDo('l:' + id, () => { S.labs = S.labs.filter(l => l.id !== id); delDoc('labs/' + id); }, renderSalud); break;
-    case 'q-toggle': {
-      if (S.readonly) return;
-      const q = S.questions.find(x => x.id === id);
-      if (!q) return;
-      q.done = !q.done;
-      renderSalud();
-      putDoc('questions/' + id, strip(q));
-      break;
-    }
-    case 'q-del': confirmOrDo('q:' + id, () => { S.questions = S.questions.filter(q => q.id !== id); delDoc('questions/' + id); }, renderSalud); break;
-    case 'sum-build': S.summary = buildSummary(); S.copied = false; renderSalud(); break;
-    case 'sum-copy': copySummary(); break;
-    case 'shop': {
-      if (S.readonly || !S.loaded.shopping) return;
-      const k = el.dataset.k;
-      S.shopping = Object.assign({}, S.shopping);
-      if (S.shopping[k]) delete S.shopping[k]; else S.shopping[k] = true;
-      saveShop();
-      renderGuia();
-      break;
-    }
-    case 'shop-clear':
-      if (S.readonly || !S.loaded.shopping) return;
-      S.shopping = {};
-      saveShop();
-      renderGuia();
-      break;
-    case 'shop-del': {
-      if (S.readonly || !S.loaded.shopping) return;
-      const k = el.dataset.k;
-      S.shopCustom = (S.shopCustom || []).filter(x => x.k !== k);
-      if (S.shopping[k]) { S.shopping = Object.assign({}, S.shopping); delete S.shopping[k]; }
-      saveShop();
-      renderGuia();
-      break;
-    }
-    case 'meds-edit': setTab('ajustes'); break;
-    case 'med-new-go': setTab('ajustes'); openNewMed(); break;
-    case 'med-new': openNewMed(); break;
-    case 'med-edit': {
-      const m = S.meds.find(x => x.id === id);
-      if (!m || S.readonly) return;
-      S.medDraft = clone(m);
-      if (!Array.isArray(S.medDraft.days)) S.medDraft.days = ALL_DAYS.slice();
-      S.formErr.med = '';
-      S.confirmDel = null;
-      renderAjustes();
-      focusEl('md-name');
-      break;
-    }
-    case 'md-slot': {
-      if (!S.medDraft) return;
-      const set = new Set(S.medDraft.slots || []), s = el.dataset.s;
-      if (set.has(s)) set.delete(s); else set.add(s);
-      S.medDraft.slots = SLOT_KEYS.filter(k => set.has(k));
-      renderAjustes();
-      break;
-    }
-    case 'md-day': {
-      if (!S.medDraft) return;
-      const set = new Set(S.medDraft.days || []), n = Number(el.dataset.n);
-      if (set.has(n)) set.delete(n); else set.add(n);
-      S.medDraft.days = ALL_DAYS.filter(x => set.has(x));
-      renderAjustes();
-      break;
-    }
-    case 'md-active': if (S.medDraft) { S.medDraft.active = !S.medDraft.active; renderAjustes(); } break;
-    case 'md-save': saveMedDraft(); break;
-    case 'md-cancel': S.medDraft = null; S.formErr.med = ''; renderAjustes(); break;
-    case 'med-del': confirmOrDo('med:' + id, () => { S.meds = S.meds.filter(m => m.id !== id); if (S.medDraft && S.medDraft.id === id) S.medDraft = null; saveMeds(); }, renderAjustes); break;
-    case 'logout': logout(); break;
-    case 'export': exportData(); break;
-    case 'wipe': confirmOrDo('wipe', () => { wipeData(); }, renderAjustes); break;
-    case 'reload': location.reload(); break;
-    default: extClick(act, el, id); break;
-  }
 }

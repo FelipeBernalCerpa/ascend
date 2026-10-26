@@ -1,4 +1,132 @@
 'use strict';
+function submitQ(form) {
+  const text = (($('#q-new', form) || {}).value || '').trim();
+  const doctor = (($('#q-doc', form) || {}).value) || 'otro';
+  S.formErr.q = text ? '' : 'Escribe la pregunta.';
+  if (!text || !S.loaded.questions) { renderSalud(); return; }
+  const data = { text, doctor, done: false, answer: '', createdAt: Date.now() };
+  const id = store.newId('questions');
+  S.questions.push(Object.assign({ id }, data));
+  delete S.drafts['q-new'];
+  renderSalud();
+  putDoc('questions/' + id, data);
+}
+
+function onClick(e) {
+  const el = e.target.closest('[data-tab],[data-go],[data-act]');
+  if (!el || el.disabled) return;
+  if (el.dataset.tab) { setTab(el.dataset.tab); return; }
+  if (el.dataset.go) { setTab(el.dataset.go); return; }
+  const act = el.dataset.act, id = el.dataset.id;
+  switch (act) {
+    case 'day': {
+      const nk = addDays(S.viewKey, Number(el.dataset.d) || 0);
+      if (nk > todayKey()) return;
+      S.viewKey = nk; ensureDay(nk); renderHoy();
+      break;
+    }
+    case 'day-today': S.viewKey = todayKey(); renderHoy(); break;
+    case 'goto-day': S.viewKey = el.dataset.day; ensureDay(S.viewKey); setTab('hoy'); break;
+    case 'dose': doseAction(el.dataset.op, el.dataset.key, el.dataset.hm, el); break;
+    case 'water':
+      if (mutDay(S.viewKey, d => { d.water = (d.water || []).concat(Number(el.dataset.ml) || 0); })) renderHoy(['water', 'meters']);
+      break;
+    case 'water-undo':
+      if (mutDay(S.viewKey, d => { d.water = (d.water || []).slice(0, -1); })) renderHoy(['water', 'meters']);
+      break;
+    case 'boost':
+      if (mutDay(S.viewKey, d => { d.boost = Object.assign({}, d.boost); const k = el.dataset.k; if (d.boost[k]) delete d.boost[k]; else d.boost[k] = true; })) renderHoy(['boost', 'meters']);
+      break;
+    case 'feel':
+      if (mutDay(S.viewKey, d => { const f = el.dataset.f, v = Number(el.dataset.v); if (d[f] === v) delete d[f]; else d[f] = v; })) renderHoy(['feel']);
+      break;
+    case 'sleep-fill':
+      if (mutDay(S.viewKey, d => { d.sleep = { bed: S.settings.bedTarget, wake: S.settings.wakeTarget }; })) renderHoy(['sleep', 'meters']);
+      break;
+    case 'm-del': {
+      const fld = el.dataset.field;
+      confirmOrDo('m:' + id + ':' + fld, () => delMeasure(id, fld === 'comp' ? ['fat', 'muscle'] : [fld]), renderProgreso);
+      break;
+    }
+    case 'lab-open': S.openLab = S.openLab === el.dataset.g ? null : el.dataset.g; renderSalud(); break;
+    case 'lab-del': confirmOrDo('l:' + id, () => { S.labs = S.labs.filter(l => l.id !== id); delDoc('labs/' + id); }, renderSalud); break;
+    case 'q-toggle': {
+      if (S.readonly) return;
+      const q = S.questions.find(x => x.id === id);
+      if (!q) return;
+      q.done = !q.done;
+      renderSalud();
+      putDoc('questions/' + id, strip(q));
+      break;
+    }
+    case 'q-del': confirmOrDo('q:' + id, () => { S.questions = S.questions.filter(q => q.id !== id); delDoc('questions/' + id); }, renderSalud); break;
+    case 'sum-build': S.summary = buildSummary(); S.copied = false; renderSalud(); break;
+    case 'sum-copy': copySummary(); break;
+    case 'shop': {
+      if (S.readonly || !S.loaded.shopping) return;
+      const k = el.dataset.k;
+      S.shopping = Object.assign({}, S.shopping);
+      if (S.shopping[k]) delete S.shopping[k]; else S.shopping[k] = true;
+      saveShop();
+      renderGuia();
+      break;
+    }
+    case 'shop-clear':
+      if (S.readonly || !S.loaded.shopping) return;
+      S.shopping = {};
+      saveShop();
+      renderGuia();
+      break;
+    case 'shop-del': {
+      if (S.readonly || !S.loaded.shopping) return;
+      const k = el.dataset.k;
+      S.shopCustom = (S.shopCustom || []).filter(x => x.k !== k);
+      if (S.shopping[k]) { S.shopping = Object.assign({}, S.shopping); delete S.shopping[k]; }
+      saveShop();
+      renderGuia();
+      break;
+    }
+    case 'meds-edit': setTab('ajustes'); break;
+    case 'med-new-go': setTab('ajustes'); openNewMed(); break;
+    case 'med-new': openNewMed(); break;
+    case 'med-edit': {
+      const m = S.meds.find(x => x.id === id);
+      if (!m || S.readonly) return;
+      S.medDraft = clone(m);
+      if (!Array.isArray(S.medDraft.days)) S.medDraft.days = ALL_DAYS.slice();
+      S.formErr.med = '';
+      S.confirmDel = null;
+      renderAjustes();
+      focusEl('md-name');
+      break;
+    }
+    case 'md-slot': {
+      if (!S.medDraft) return;
+      const set = new Set(S.medDraft.slots || []), s = el.dataset.s;
+      if (set.has(s)) set.delete(s); else set.add(s);
+      S.medDraft.slots = SLOT_KEYS.filter(k => set.has(k));
+      renderAjustes();
+      break;
+    }
+    case 'md-day': {
+      if (!S.medDraft) return;
+      const set = new Set(S.medDraft.days || []), n = Number(el.dataset.n);
+      if (set.has(n)) set.delete(n); else set.add(n);
+      S.medDraft.days = ALL_DAYS.filter(x => set.has(x));
+      renderAjustes();
+      break;
+    }
+    case 'md-active': if (S.medDraft) { S.medDraft.active = !S.medDraft.active; renderAjustes(); } break;
+    case 'md-save': saveMedDraft(); break;
+    case 'md-cancel': S.medDraft = null; S.formErr.med = ''; renderAjustes(); break;
+    case 'med-del': confirmOrDo('med:' + id, () => { S.meds = S.meds.filter(m => m.id !== id); if (S.medDraft && S.medDraft.id === id) S.medDraft = null; saveMeds(); }, renderAjustes); break;
+    case 'logout': logout(); break;
+    case 'export': exportData(); break;
+    case 'wipe': confirmOrDo('wipe', () => { wipeData(); }, renderAjustes); break;
+    case 'reload': location.reload(); break;
+    default: extClick(act, el, id); break;
+  }
+}
 function onInput(e) {
   const t = e.target;
   if (!t || !t.dataset) return;
@@ -297,145 +425,3 @@ function exportData() {
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
 }
 const IMPORT_COLS = ['config', 'days', 'measures', 'labs', 'questions', 'foods', 'recipes'];
-async function importData(input) {
-  const file = input.files && input.files[0];
-  input.value = '';
-  if (!file || S.readonly) return;
-  let parsed = null;
-  try { parsed = JSON.parse(await file.text()); } catch (e) { parsed = null; }
-  const docs = parsed && parsed.docs && typeof parsed.docs === 'object' ? parsed.docs : null;
-  if (!docs) { S.dataMsg = 'Ese archivo no es un respaldo de Ascend.'; renderAjustes(); return; }
-  const rows = [];
-  const now = new Date().toISOString();
-  for (const path of Object.keys(docs)) {
-    const seg = path.split('/');
-    const data = docs[path];
-    if (seg.length !== 2 || IMPORT_COLS.indexOf(seg[0]) < 0 || !/^[A-Za-z0-9_\-.~:@+]{1,200}$/.test(seg[1])) continue;
-    if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
-    rows.push({ user_id: store.userId, path, data, updated_at: now });
-  }
-  if (!rows.length) { S.dataMsg = 'El archivo no trae registros para importar.'; renderAjustes(); return; }
-  S.dataMsg = 'Importando ' + rows.length + ' registros…';
-  renderAjustes();
-  try {
-    for (let i = 0; i < rows.length; i += 200) {
-      const res = await sb.from('docs').upsert(rows.slice(i, i + 200), { onConflict: 'user_id,path' });
-      if (res.error) throw normErr(res.error, res.status);
-    }
-    await store.load();
-    store.emit();
-    S.dataMsg = 'Listo: se importaron ' + rows.length + ' registros.';
-  } catch (e) {
-    S.dataMsg = 'No se pudo importar. Revisa tu conexión e intenta de nuevo.';
-  }
-  renderAjustes();
-}
-async function wipeData() {
-  saver.pend.clear();
-  const res = await sb.from('docs').delete().eq('user_id', store.userId);
-  if (res.error) { S.dataMsg = 'No se pudieron borrar los datos. Intenta de nuevo.'; renderAjustes(); return; }
-  location.reload();
-}
-
-/* ---------- plan personal: perfil, objetivos y metas ---------- */
-S.chat = { items: [], busy: false, err: '', remaining: null };
-S.habits = null;
-S.guide = null;
-
-const prof = () => S.profile || {};
-const profileGoal = () => (GOALS.some(g => g.k === prof().goal) ? prof().goal : '');
-const hasCond = k => Array.isArray(prof().cond) && prof().cond.indexOf(k) >= 0;
-const hasDiet = k => Array.isArray(prof().diet) && prof().diet.indexOf(k) >= 0;
-const goalLabel = k => (GOALS.find(g => g.k === k) || {}).label || '';
-const labelsOf = (list, keys) => list.filter(x => (keys || []).indexOf(x.k) >= 0).map(x => x.label);
-function userAge() { return ageOn(prof().birth, todayKey()); }
-/* cómo se lee cada meta según la persona: con enfermedad renal la proteína es un tope; para adultos que quieren bajar de peso, las calorías también */
-function goalKind(k) {
-  if (k === 'p') return hasCond('renal') ? 'max' : 'min';
-  if (k === 'kcal') { const a = userAge(); return profileGoal() === 'bajar' && a != null && a >= 18 ? 'max' : 'meta'; }
-  return GOAL_KIND[k];
-}
-function habitsList() {
-  if (S.habits && Array.isArray(S.habits.items)) return S.habits.items.filter(x => x && x.k && x.label);
-  return HABITS_BY_GOAL[profileGoal() || 'mantener'];
-}
-function guideShop() { return S.guide && Array.isArray(S.guide.shop) ? S.guide.shop.filter(x => x && x.k && x.label) : []; }
-function guideList(sec) { return S.guide && Array.isArray(S.guide[sec]) ? S.guide[sec].filter(x => x && x.id && x.t) : []; }
-
-/* Energía: adolescentes (13 a 17) con la ecuación EER del IOM (2005), que ya incluye el crecimiento;
-   adultos con Mifflin-St Jeor por factor de actividad. Los topes siguen OMS e IOM. */
-function computePlan(i) {
-  const age = ageOn(i.birth, todayKey());
-  if (i.sex !== 'm' && i.sex !== 'f') return { err: 'Elige tu sexo: lo usan las fórmulas de calorías.' };
-  if (age == null) return { err: 'Escribe tu fecha de nacimiento.' };
-  if (age < 13) return { err: 'Ascend está pensada para personas de 13 años o más. Pide a tu pediatra que te ayude con tus metas.' };
-  const w = parseNum(i.weight), h = parseNum(i.height);
-  if (!(h >= 100 && h <= 230)) return { err: 'Escribe tu estatura en centímetros, entre 100 y 230.' };
-  if (!(w >= 25 && w <= 300)) return { err: 'Escribe tu peso en kilos, entre 25 y 300.' };
-  if (!GOALS.some(g => g.k === i.goal)) return { err: 'Elige tu objetivo.' };
-  const ai = ACTIVITY.findIndex(a => a.k === i.activity);
-  if (ai < 0) return { err: 'Elige tu nivel de actividad.' };
-  const cond = k => (i.cond || []).indexOf(k) >= 0;
-  const teen = age < 18, hm = h / 100, bmi = w / (hm * hm), goal = i.goal, fast = i.pace === 'moderado';
-  let maint;
-  if (teen) {
-    const pa = i.sex === 'm' ? [1, 1.13, 1.26, 1.42][ai] : [1, 1.16, 1.31, 1.56][ai];
-    maint = i.sex === 'm' ? 88.5 - 61.9 * age + pa * (26.7 * w + 903 * hm) + 25 : 135.3 - 30.8 * age + pa * (10 * w + 934 * hm) + 25;
-  } else {
-    maint = (10 * w + 6.25 * h - 5 * age + (i.sex === 'm' ? 5 : -161)) * [1.2, 1.375, 1.55, 1.725][ai];
-  }
-  const notes = [];
-  const r = { age, teen, bmi: r1(bmi), maint: r10(maint), notes, hideCal: cond('tca') };
-  r.water = cond('renal') ? null : Math.min(3500, Math.max(1500, Math.round(w * 35 / 250) * 250)) + (cond('embarazo') ? 500 : 0);
-  r.sleep = teen ? 9 : 8;
-  r.steps = Math.min(12000, [6000, 7500, 9000, 10000][ai] + (goal === 'bajar' && !teen ? 1000 : 0));
-  if (r.hideCal) {
-    r.clear = NK.filter(k => k !== 'na');
-    notes.push('Con un trastorno de la conducta alimentaria, contar calorías puede hacer daño. Ascend no te pone metas de calorías, nutrientes ni peso: arma esas metas con tu equipo de salud.');
-    notes.push('Si te sientes mal, en Colombia puedes llamar a la Línea 106 (Bogotá) o a la 192, opción 4. En una emergencia, al 123.');
-    for (const k of NK) r[k] = null;
-    return r;
-  }
-  const preg = cond('embarazo');
-  let adj = 0;
-  if (goal === 'bajar') {
-    if (teen) notes.push('Estás creciendo: Ascend no te pone déficit de calorías. Tu plan cuida el peso con hábitos; si necesitas bajar, hazlo con tu pediatra o nutricionista.');
-    else if (cond('embarazo')) notes.push('En embarazo o lactancia no se hace déficit de calorías: tu plan queda en mantenimiento.');
-    else if (bmi < 18.5) notes.push('Tu IMC está por debajo de 18,5, así que bajar de peso no es sano para ti. Tu plan queda en mantenimiento; habla con tu médico.');
-    else adj = fast ? -500 : -250;
-  } else if (goal === 'subir') adj = fast ? 450 : 250;
-  else if (goal === 'musculo') adj = fast ? 300 : 150;
-  if (preg) adj = 0;
-  let kcal = r10(maint + adj);
-  const floor = i.sex === 'm' ? 1500 : 1200;
-  if (adj < 0 && kcal < floor) {
-    if (maint <= floor) { kcal = r10(maint); adj = 0; notes.push('Tu gasto estimado ya es bajo, así que bajar de peso sin supervisión no es seguro para ti. Tu plan queda en mantenimiento; habla con tu médico.'); }
-    else { kcal = floor; adj = kcal - maint; notes.push('Tus calorías quedan en ' + fmtInt(floor) + ', el mínimo seguro sin supervisión médica.'); }
-  }
-  r.kcal = kcal;
-  const gkg = teen ? (goal === 'musculo' ? 1.2 : 1.0) : ({ bajar: 1.4, mantener: 1.0, subir: 1.2, musculo: 1.6 })[goal];
-  const pCalc = Math.round(w * (preg ? 1.1 : gkg));
-  r.p = cond('renal') ? null : pCalc;
-  r.f = Math.round(kcal * (goal === 'subir' ? 0.33 : goal === 'musculo' ? 0.28 : 0.3) / 9);
-  r.sf = Math.round(kcal * 0.1 / 9);
-  r.c = cond('diabetes') ? null : Math.max(0, Math.round((kcal - pCalc * 4 - r.f * 9) / 4));
-  r.s = Math.round(kcal * (goal === 'bajar' || cond('diabetes') ? 0.12 : 0.15) / 4);
-  r.fi = Math.min(38, Math.max(20, Math.round(kcal * 14 / 1000)));
-  r.na = cond('renal') ? null : cond('hta') ? 1500 : 2000;
-  if (preg) {
-    r.clear = ['kcal', 'c', 'f', 'sf', 's'];
-    for (const k of r.clear) r[k] = null;
-    r.fi = 28;
-    r.hideKcal = true;
-  }
-  const kg = Math.abs(adj) * 7 / 7700;
-  if (adj < 0) notes.push('Con este plan bajarías cerca de ' + fmtNum(kg, 1, 1) + ' kg por semana.');
-  else if (adj > 0) notes.push((teen ? 'Además de lo que necesitas para crecer, ' : '') + 'el plan suma ' + fmtInt(adj) + ' kcal al día: cerca de ' + fmtNum(kg, 1, 1) + ' kg por semana.');
-  if (teen) notes.push('Para menores de 18 Ascend usa la ecuación de energía del IOM, que incluye lo que tu cuerpo gasta en crecer.');
-  if (cond('renal')) notes.push('Con enfermedad renal, la proteína, el sodio y los líquidos los define tu nefrólogo: Ascend deja esas metas como las tengas.');
-  if (cond('diabetes')) notes.push('Con diabetes, los carbohidratos los define tu médico: Ascend no los fija.');
-  if (cond('hta')) notes.push('Con presión alta, el sodio queda en 1.500 mg salvo que tu médico te indique otra cifra.');
-  if (preg) notes.push('En embarazo o lactancia las calorías cambian según el trimestre o la lactancia: esa cifra te la da tu médico. Ascend fija proteína (1,1 g por kilo), fibra, agua, sueño y pasos.');
-  notes.push('Pésate cada 2 a 4 semanas; si el peso no se mueve como esperas, recalcula.');
-  return r;
-}

@@ -1,4 +1,147 @@
 'use strict';
+async function importData(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file || S.readonly) return;
+  let parsed = null;
+  try { parsed = JSON.parse(await file.text()); } catch (e) { parsed = null; }
+  const docs = parsed && parsed.docs && typeof parsed.docs === 'object' ? parsed.docs : null;
+  if (!docs) { S.dataMsg = 'Ese archivo no es un respaldo de Ascend.'; renderAjustes(); return; }
+  const rows = [];
+  const now = new Date().toISOString();
+  for (const path of Object.keys(docs)) {
+    const seg = path.split('/');
+    const data = docs[path];
+    if (seg.length !== 2 || IMPORT_COLS.indexOf(seg[0]) < 0 || !/^[A-Za-z0-9_\-.~:@+]{1,200}$/.test(seg[1])) continue;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+    rows.push({ user_id: store.userId, path, data, updated_at: now });
+  }
+  if (!rows.length) { S.dataMsg = 'El archivo no trae registros para importar.'; renderAjustes(); return; }
+  S.dataMsg = 'Importando ' + rows.length + ' registros…';
+  renderAjustes();
+  try {
+    for (let i = 0; i < rows.length; i += 200) {
+      const res = await sb.from('docs').upsert(rows.slice(i, i + 200), { onConflict: 'user_id,path' });
+      if (res.error) throw normErr(res.error, res.status);
+    }
+    await store.load();
+    store.emit();
+    S.dataMsg = 'Listo: se importaron ' + rows.length + ' registros.';
+  } catch (e) {
+    S.dataMsg = 'No se pudo importar. Revisa tu conexión e intenta de nuevo.';
+  }
+  renderAjustes();
+}
+async function wipeData() {
+  saver.pend.clear();
+  const res = await sb.from('docs').delete().eq('user_id', store.userId);
+  if (res.error) { S.dataMsg = 'No se pudieron borrar los datos. Intenta de nuevo.'; renderAjustes(); return; }
+  location.reload();
+}
+
+/* ---------- plan personal: perfil, objetivos y metas ---------- */
+S.chat = { items: [], busy: false, err: '', remaining: null };
+S.habits = null;
+S.guide = null;
+
+const prof = () => S.profile || {};
+const profileGoal = () => (GOALS.some(g => g.k === prof().goal) ? prof().goal : '');
+const hasCond = k => Array.isArray(prof().cond) && prof().cond.indexOf(k) >= 0;
+const hasDiet = k => Array.isArray(prof().diet) && prof().diet.indexOf(k) >= 0;
+const goalLabel = k => (GOALS.find(g => g.k === k) || {}).label || '';
+const labelsOf = (list, keys) => list.filter(x => (keys || []).indexOf(x.k) >= 0).map(x => x.label);
+function userAge() { return ageOn(prof().birth, todayKey()); }
+/* cómo se lee cada meta según la persona: con enfermedad renal la proteína es un tope; para adultos que quieren bajar de peso, las calorías también */
+function goalKind(k) {
+  if (k === 'p') return hasCond('renal') ? 'max' : 'min';
+  if (k === 'kcal') { const a = userAge(); return profileGoal() === 'bajar' && a != null && a >= 18 ? 'max' : 'meta'; }
+  return GOAL_KIND[k];
+}
+function habitsList() {
+  if (S.habits && Array.isArray(S.habits.items)) return S.habits.items.filter(x => x && x.k && x.label);
+  return HABITS_BY_GOAL[profileGoal() || 'mantener'];
+}
+function guideShop() { return S.guide && Array.isArray(S.guide.shop) ? S.guide.shop.filter(x => x && x.k && x.label) : []; }
+function guideList(sec) { return S.guide && Array.isArray(S.guide[sec]) ? S.guide[sec].filter(x => x && x.id && x.t) : []; }
+
+/* Energía: adolescentes (13 a 17) con la ecuación EER del IOM (2005), que ya incluye el crecimiento;
+   adultos con Mifflin-St Jeor por factor de actividad. Los topes siguen OMS e IOM. */
+function computePlan(i) {
+  const age = ageOn(i.birth, todayKey());
+  if (i.sex !== 'm' && i.sex !== 'f') return { err: 'Elige tu sexo: lo usan las fórmulas de calorías.' };
+  if (age == null) return { err: 'Escribe tu fecha de nacimiento.' };
+  if (age < 13) return { err: 'Ascend está pensada para personas de 13 años o más. Pide a tu pediatra que te ayude con tus metas.' };
+  const w = parseNum(i.weight), h = parseNum(i.height);
+  if (!(h >= 100 && h <= 230)) return { err: 'Escribe tu estatura en centímetros, entre 100 y 230.' };
+  if (!(w >= 25 && w <= 300)) return { err: 'Escribe tu peso en kilos, entre 25 y 300.' };
+  if (!GOALS.some(g => g.k === i.goal)) return { err: 'Elige tu objetivo.' };
+  const ai = ACTIVITY.findIndex(a => a.k === i.activity);
+  if (ai < 0) return { err: 'Elige tu nivel de actividad.' };
+  const cond = k => (i.cond || []).indexOf(k) >= 0;
+  const teen = age < 18, hm = h / 100, bmi = w / (hm * hm), goal = i.goal, fast = i.pace === 'moderado';
+  let maint;
+  if (teen) {
+    const pa = i.sex === 'm' ? [1, 1.13, 1.26, 1.42][ai] : [1, 1.16, 1.31, 1.56][ai];
+    maint = i.sex === 'm' ? 88.5 - 61.9 * age + pa * (26.7 * w + 903 * hm) + 25 : 135.3 - 30.8 * age + pa * (10 * w + 934 * hm) + 25;
+  } else {
+    maint = (10 * w + 6.25 * h - 5 * age + (i.sex === 'm' ? 5 : -161)) * [1.2, 1.375, 1.55, 1.725][ai];
+  }
+  const notes = [];
+  const r = { age, teen, bmi: r1(bmi), maint: r10(maint), notes, hideCal: cond('tca') };
+  r.water = cond('renal') ? null : Math.min(3500, Math.max(1500, Math.round(w * 35 / 250) * 250)) + (cond('embarazo') ? 500 : 0);
+  r.sleep = teen ? 9 : 8;
+  r.steps = Math.min(12000, [6000, 7500, 9000, 10000][ai] + (goal === 'bajar' && !teen ? 1000 : 0));
+  if (r.hideCal) {
+    r.clear = NK.filter(k => k !== 'na');
+    notes.push('Con un trastorno de la conducta alimentaria, contar calorías puede hacer daño. Ascend no te pone metas de calorías, nutrientes ni peso: arma esas metas con tu equipo de salud.');
+    notes.push('Si te sientes mal, en Colombia puedes llamar a la Línea 106 (Bogotá) o a la 192, opción 4. En una emergencia, al 123.');
+    for (const k of NK) r[k] = null;
+    return r;
+  }
+  const preg = cond('embarazo');
+  let adj = 0;
+  if (goal === 'bajar') {
+    if (teen) notes.push('Estás creciendo: Ascend no te pone déficit de calorías. Tu plan cuida el peso con hábitos; si necesitas bajar, hazlo con tu pediatra o nutricionista.');
+    else if (cond('embarazo')) notes.push('En embarazo o lactancia no se hace déficit de calorías: tu plan queda en mantenimiento.');
+    else if (bmi < 18.5) notes.push('Tu IMC está por debajo de 18,5, así que bajar de peso no es sano para ti. Tu plan queda en mantenimiento; habla con tu médico.');
+    else adj = fast ? -500 : -250;
+  } else if (goal === 'subir') adj = fast ? 450 : 250;
+  else if (goal === 'musculo') adj = fast ? 300 : 150;
+  if (preg) adj = 0;
+  let kcal = r10(maint + adj);
+  const floor = i.sex === 'm' ? 1500 : 1200;
+  if (adj < 0 && kcal < floor) {
+    if (maint <= floor) { kcal = r10(maint); adj = 0; notes.push('Tu gasto estimado ya es bajo, así que bajar de peso sin supervisión no es seguro para ti. Tu plan queda en mantenimiento; habla con tu médico.'); }
+    else { kcal = floor; adj = kcal - maint; notes.push('Tus calorías quedan en ' + fmtInt(floor) + ', el mínimo seguro sin supervisión médica.'); }
+  }
+  r.kcal = kcal;
+  const gkg = teen ? (goal === 'musculo' ? 1.2 : 1.0) : ({ bajar: 1.4, mantener: 1.0, subir: 1.2, musculo: 1.6 })[goal];
+  const pCalc = Math.round(w * (preg ? 1.1 : gkg));
+  r.p = cond('renal') ? null : pCalc;
+  r.f = Math.round(kcal * (goal === 'subir' ? 0.33 : goal === 'musculo' ? 0.28 : 0.3) / 9);
+  r.sf = Math.round(kcal * 0.1 / 9);
+  r.c = cond('diabetes') ? null : Math.max(0, Math.round((kcal - pCalc * 4 - r.f * 9) / 4));
+  r.s = Math.round(kcal * (goal === 'bajar' || cond('diabetes') ? 0.12 : 0.15) / 4);
+  r.fi = Math.min(38, Math.max(20, Math.round(kcal * 14 / 1000)));
+  r.na = cond('renal') ? null : cond('hta') ? 1500 : 2000;
+  if (preg) {
+    r.clear = ['kcal', 'c', 'f', 'sf', 's'];
+    for (const k of r.clear) r[k] = null;
+    r.fi = 28;
+    r.hideKcal = true;
+  }
+  const kg = Math.abs(adj) * 7 / 7700;
+  if (adj < 0) notes.push('Con este plan bajarías cerca de ' + fmtNum(kg, 1, 1) + ' kg por semana.');
+  else if (adj > 0) notes.push((teen ? 'Además de lo que necesitas para crecer, ' : '') + 'el plan suma ' + fmtInt(adj) + ' kcal al día: cerca de ' + fmtNum(kg, 1, 1) + ' kg por semana.');
+  if (teen) notes.push('Para menores de 18 Ascend usa la ecuación de energía del IOM, que incluye lo que tu cuerpo gasta en crecer.');
+  if (cond('renal')) notes.push('Con enfermedad renal, la proteína, el sodio y los líquidos los define tu nefrólogo: Ascend deja esas metas como las tengas.');
+  if (cond('diabetes')) notes.push('Con diabetes, los carbohidratos los define tu médico: Ascend no los fija.');
+  if (cond('hta')) notes.push('Con presión alta, el sodio queda en 1.500 mg salvo que tu médico te indique otra cifra.');
+  if (preg) notes.push('En embarazo o lactancia las calorías cambian según el trimestre o la lactancia: esa cifra te la da tu médico. Ascend fija proteína (1,1 g por kilo), fibra, agua, sueño y pasos.');
+  notes.push('Pésate cada 2 a 4 semanas; si el peso no se mueve como esperas, recalcula.');
+  return r;
+}
+
 /* ---------- hoja: asistente guiado ---------- */
 function openPlan() {
   if (S.readonly) return;
@@ -150,112 +293,4 @@ function tipsHTML() {
   if (hasCond('tca')) T.push(['Tu bienestar primero', 'Si registrar comida te genera ansiedad, deja esa parte y usa Ascend para medicamentos, sueño y citas.']);
   return '<section class="card" id="card-tips"><div class="card-h"><h2>Lo básico</h2></div><ul class="rules">' +
     T.map(t => '<li><strong>' + esc(t[0]) + '</strong><span>' + esc(t[1]) + '</span></li>').join('') + '</ul></section>';
-}
-function guideCardHTML() {
-  const dis = S.readonly || !S.loaded.guide ? ' disabled' : '';
-  const secs = GUIDE_SECTIONS.map(sec => [sec, guideList(sec.k)]);
-  const any = secs.some(x => x[1].length);
-  const sel = draft('gd-sec', 'rules');
-  return '<section class="card" id="card-guide"><div class="card-h"><h2>Mis indicaciones</h2></div>' +
-    (any ? secs.filter(x => x[1].length).map(([sec, items]) => '<p class="sh-sec">' + esc(sec.label) + '</p><ul class="rules' + (sec.k === 'avoid' ? ' avoid' : '') + '">' +
-      items.map(it => {
-        const tag = 'gd:' + it.id, armed = S.confirmDel === tag;
-        return '<li class="gi"><div class="gi-x"><strong>' + esc(it.t) + '</strong>' + (it.d ? '<span>' + esc(it.d) + '</span>' : '') + '</div>' +
-          '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="gdx-' + esc(it.id) + '" data-act="gd-del" data-sec="' + sec.k + '" data-id="' + esc(it.id) + '"' + dis + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></li>';
-      }).join('') + '</ul>').join('')
-      : '<p class="empty">Anota aquí lo que te indiquen tu médico o tu nutricionista, para tenerlo a mano.</p>') +
-    '<form class="form" data-form="guide" novalidate>' +
-      '<div class="grid2"><div class="field"><label class="lbl" for="gd-sec">Sección</label><select id="gd-sec" data-draft' + dis + '>' + GUIDE_SECTIONS.map(s2 => '<option value="' + s2.k + '"' + (s2.k === sel ? ' selected' : '') + '>' + s2.label + '</option>').join('') + '</select></div>' +
-      '<div class="field"><label class="lbl" for="gd-t">Indicación</label><input type="text" id="gd-t" data-draft maxlength="80" autocomplete="off" value="' + esc(draft('gd-t', '')) + '"' + dis + '></div></div>' +
-      '<div class="field"><label class="lbl" for="gd-d">Detalle (opcional)</label><input type="text" id="gd-d" data-draft maxlength="240" autocomplete="off" value="' + esc(draft('gd-d', '')) + '"' + dis + '></div>' +
-      '<p class="form-err">' + esc(S.formErr.guide || '') + '</p>' +
-      '<button type="submit" class="btn" id="gd-add"' + dis + '>Agregar</button>' +
-    '</form></section>';
-}
-function shopCardHTML() {
-  const checked = S.shopping || {};
-  const base = guideShop(), custom = S.shopCustom || [];
-  const nDone = base.concat(custom).filter(x => checked[x.k]).length, nAll = base.length + custom.length;
-  const dis = S.readonly || !S.loaded.shopping ? ' disabled' : '';
-  const chip = x => '<button type="button" class="chip" id="s-' + esc(x.k) + '" data-act="shop" data-k="' + esc(x.k) + '" aria-pressed="' + !!checked[x.k] + '"' + dis + '><span class="tick"></span><span>' + esc(x.label) + '</span></button>';
-  return '<section class="card" id="card-shop"><div class="card-h"><h2>Lista de compras</h2><span class="meta">' + (nAll ? nDone + ' de ' + nAll : 'Vacía') + '</span></div>' +
-    (nAll ? '<div class="shop">' + base.map(chip).join('') +
-      custom.map(x => '<div class="shop-row">' + chip(x) + '<button type="button" class="xbtn" id="sx-' + esc(x.k) + '" data-act="shop-del" data-k="' + esc(x.k) + '" aria-label="' + esc('Quitar ' + x.label) + '"' + dis + '>Quitar</button></div>').join('') + '</div>' : '') +
-    '<div class="row shop-acts">' + (nDone ? '<button type="button" class="link" id="shop-clear" data-act="shop-clear"' + dis + '>Desmarcar todo</button>' : '') +
-      '<button type="button" class="btn sm quiet" id="shop-suggest" data-act="shop-suggest"' + dis + '>Sugerir según mi plan</button></div>' +
-    '<form class="form" data-form="shop" novalidate><div class="field"><label class="lbl" for="shop-new">Agregar producto</label><div class="add-row"><input type="text" id="shop-new" data-draft maxlength="80" value="' + esc(draft('shop-new', '')) + '"' + (S.readonly ? ' readonly' : '') + '><button type="submit" class="btn" id="shop-add"' + dis + '>Agregar</button></div></div>' +
-    '<p class="form-err">' + esc(S.formErr.shop || '') + '</p></form></section>';
-}
-function shopSuggestions() {
-  const g = profileGoal(), veg = hasDiet('vegetariana'), sg = hasDiet('sin_gluten'), sl = hasDiet('sin_lactosa');
-  const L = ['Frutas enteras para la semana', 'Verduras para almuerzo y cena', 'Huevos', veg ? 'Tofu o queso campesino' : 'Pollo, pescado o carne magra', 'Fríjol, lenteja o garbanzo', 'Arroz, papa, plátano o yuca', sg ? 'Avena certificada sin gluten' : 'Avena en hojuelas', sl ? 'Leche y yogur deslactosados' : 'Leche y yogur natural', 'Frutos secos sin sal', 'Aceite de oliva o de canola'];
-  if (g === 'subir' || g === 'musculo') L.push('Aguacate', 'Mantequilla de maní sin azúcar');
-  if (g === 'subir') L.push(sl ? 'Leche entera deslactosada' : 'Leche entera');
-  if (g === 'bajar') L.push('Verduras para picar entre comidas', 'Aromáticas sin azúcar');
-  if (sg) L.push('Pan o pasta con sello «sin gluten»');
-  return L;
-}
-function suggestShop() {
-  if (S.readonly || !S.loaded.shopping) return;
-  const have = new Set(guideShop().concat(S.shopCustom || []).map(x => norm(x.label)));
-  const add = shopSuggestions().filter(l => !have.has(norm(l))).map(l => ({ k: 'sg-' + norm(l).replace(/ /g, '-').slice(0, 40), label: l }));
-  if (!add.length) { toast('Tu lista ya tiene todo lo sugerido.'); return; }
-  S.shopCustom = (S.shopCustom || []).concat(add).slice(0, MAX_SHOP);
-  saveShop();
-  renderGuia();
-  toast('Agregué ' + add.length + ' productos a tu lista.');
-}
-function renderGuia() {
-  const root = $('#view-guia');
-  if (!root) return;
-  swap(root, planCardHTML() + chatCardHTML() + guideCardHTML() + shopCardHTML() + tipsHTML());
-  const log = $('#chat-log');
-  if (log) log.scrollTop = log.scrollHeight;
-}
-function saveGuide() { if (S.loaded.guide) saver.queue('config/guide', clone(S.guide || {}), 200); }
-function submitGuide(form) {
-  if (S.readonly || !S.loaded.guide) return;
-  const sec = (($('#gd-sec', form) || {}).value) || 'rules';
-  const t = ((($('#gd-t', form) || {}).value) || '').trim().slice(0, 80);
-  const dd = ((($('#gd-d', form) || {}).value) || '').trim().slice(0, 240);
-  S.formErr.guide = '';
-  if (!GUIDE_SECTIONS.some(x => x.k === sec)) return;
-  if (!t) S.formErr.guide = 'Escribe la indicación.';
-  else if (guideList(sec).length >= MAX_GUIDE) S.formErr.guide = 'Esa sección ya tiene ' + MAX_GUIDE + ' indicaciones.';
-  if (S.formErr.guide) { renderGuia(); return; }
-  S.guide = Object.assign({}, S.guide);
-  S.guide[sec] = guideList(sec).concat({ id: uid(), t, d: dd });
-  delete S.drafts['gd-t'];
-  delete S.drafts['gd-d'];
-  S.drafts['gd-sec'] = sec;
-  saveGuide();
-  renderGuia();
-  focusEl('gd-t');
-}
-
-/* ---------- Ajustes: hábitos y privacidad ---------- */
-function saveHabits(items) {
-  S.habits = { items: items.slice(0, MAX_HABITS).map(x => {
-    const o = { k: x.k, label: x.label };
-    for (const f of ['freq', 'times', 'start', 'end', 'remind', 'note', 'createdAt']) if (x[f] != null && x[f] !== '' && x[f] !== 0) o[f] = x[f];
-    if (Array.isArray(x.days) && x.days.length && x.freq === 'days') o.days = x.days.slice();
-    if (o.freq === 'daily') delete o.freq;
-    if (!o.freq || o.freq === 'days') delete o.times;
-    return o;
-  }) };
-  saver.queue('config/habits', clone(S.habits), 200);
-}
-function habitsCardHTML() {
-  const dis = S.readonly || !S.loaded.habits ? ' disabled' : '';
-  const own = !!(S.habits && Array.isArray(S.habits.items));
-  const list = habitsList();
-  return '<section class="card" id="card-habits"><div class="card-h"><h2>Tus hábitos del día</h2><span class="meta">' + (own ? 'Personalizados' : 'Según tu objetivo') + '</span></div>' +
-    (list.length ? '<div class="meds">' + list.map(x => {
-      const tag = 'hb:' + x.k, armed = S.confirmDel === tag;
-      return '<div class="med"><div class="med-info"><span class="med-n">' + esc(x.label) + '</span></div><div class="med-btns"><button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="hbx-' + esc(x.k) + '" data-act="hb-del" data-k="' + esc(x.k) + '"' + dis + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></div></div>';
-    }).join('') + '</div>' : '<p class="empty">Sin hábitos. Agrega los que quieras marcar cada día.</p>') +
-    '<form class="form" data-form="habit" novalidate><div class="field"><label class="lbl" for="hb-new">Nuevo hábito</label><div class="add-row"><input type="text" id="hb-new" data-draft maxlength="60" autocomplete="off" value="' + esc(draft('hb-new', '')) + '"' + dis + '><button type="submit" class="btn" id="hb-add"' + dis + '>Agregar</button></div></div>' +
-    '<p class="form-err">' + esc(S.formErr.habit || '') + '</p></form>' +
-    (own ? '<button type="button" class="link" id="hb-reset" data-act="hb-reset"' + dis + '>Volver a los de mi objetivo</button>' : '') +
-    '<p class="hint">Aparecen en Hoy para marcarlos cada día. Lo que ya marcaste no cambia.</p></section>';
 }

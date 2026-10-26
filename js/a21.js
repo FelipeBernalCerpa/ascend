@@ -1,4 +1,83 @@
 'use strict';
+function anaPrompt(kind, period) {
+  if (kind === 'hab') return 'Analiza mis hábitos de ' + anaP(period).msg + ': qué cumplí, qué me está costando y qué ajustar para cumplirlos. Si conviene, propón hábitos nuevos o más fáciles.';
+  if (hasCond('tca')) return 'Revisa ' + anaP(period).msg + ': si hice mis comidas con regularidad, agua, sueño, ánimo, ejercicio, hábitos y medicamentos. Sin hablar de calorías, peso, porciones ni cantidades. Dime qué salió bien y una cosa pequeña para mejorar.';
+  return 'Analiza ' + anaP(period).msg + ': calorías que comí y quemé frente a mi meta, proteína y nutrientes, agua, sueño, ejercicio y hábitos. Dime si cumplí mis metas y cómo mejorar en mi caso.';
+}
+function saveAna() { if (S.loaded.aianalysis) saver.queue('config/aianalysis', { items: clone(S.ana.items.slice(0, MAX_ANA)) }, 200); }
+async function anaRun(kind, msg) {
+  if (S.ana.busy || S.readonly || !S.loaded.aianalysis) return;
+  const period = kind === 'hab' ? S.ana.hperiod : kind === 'gen' ? S.ana.period : null;
+  const text = kind === 'coach' ? String(msg || '').trim().slice(0, 1000) : anaPrompt(kind, period);
+  if (!text) { S.ana.err.coach = 'Escribe qué quieres lograr.'; renderActive(); return; }
+  S.ana.busy = kind;
+  S.ana.err[kind] = '';
+  renderActive();
+  let res = null, data = null;
+  try {
+    const tok = await authToken();
+    const context = anaContext(kind === 'coach' ? 'week' : period, kind === 'gen' ? 'gen' : 'hab');
+    res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: JSON.stringify({ mode: kind === 'gen' ? 'analysis' : 'habits', messages: [{ role: 'user', content: text }], context }) });
+    try { data = await res.json(); } catch (e) { data = null; }
+  } catch (e) { res = null; }
+  S.ana.busy = '';
+  if (res && res.ok && data && typeof data.text === 'string') {
+    const item = { id: uid(), kind, period, at: Date.now(), q: kind === 'coach' ? text : '', text: data.text.slice(0, 8000), prop: data.proposal && typeof data.proposal === 'object' ? data.proposal : null, habits: Array.isArray(data.habits) ? data.habits.slice(0, 6) : null };
+    S.ana.items = [item].concat(S.ana.items).slice(0, MAX_ANA);
+    if (typeof data.remaining === 'number') S.chat.remaining = data.remaining;
+    if (kind === 'coach') delete S.drafts['coach-in'];
+    saveAna();
+  } else S.ana.err[kind] = chatErrText(res, data);
+  renderActive();
+}
+function anaApply(id) {
+  const it = S.ana.items.find(x => x.id === id);
+  if (!it || !it.prop || it.applied || S.readonly || !S.loaded.settings) return;
+  const chk = proposalCheck(it.prop), o = chk.out;
+  if (!Object.keys(o).length) return;
+  const nutri = Object.assign({}, S.settings.nutri);
+  for (const k of NK) if (o[k] != null) nutri[k] = o[k];
+  S.settings.nutri = nutri;
+  if (o.waterGoal != null) S.settings.waterGoal = o.waterGoal;
+  if (o.sleepGoal != null) S.settings.sleepGoal = o.sleepGoal;
+  if (o.stepGoal != null) S.settings.stepGoal = o.stepGoal;
+  saveSettings();
+  it.applied = true;
+  saveAna();
+  renderActive();
+  toast('Metas aplicadas.' + (chk.skipped.length ? ' No cambié ' + chk.skipped.join(', ') + '.' : ''));
+}
+function anaPropHTML(it) {
+  const chk = proposalCheck(it.prop), keys = Object.keys(chk.out);
+  const note = chk.skipped.length ? '<p class="hint">No se aplica en tu caso: ' + esc(chk.skipped.join(', ')) + '.</p>' : '';
+  if (!keys.length) return note ? '<div class="prop">' + note + '</div>' : '';
+  const rows = keys.map(k => '<span class="pv"><span>' + PROP_LABELS[k][0] + '</span><b>' + (k === 'sleepGoal' ? fmtNum(chk.out[k], 1) : fmtInt(chk.out[k])) + (PROP_LABELS[k][1] ? ' ' + PROP_LABELS[k][1] : '') + '</b></span>').join('');
+  return '<div class="prop"><p class="sh-sec">Metas propuestas</p><div class="prev-g">' + rows + '</div>' + note +
+    (it.applied ? '<p class="pill ok">Aplicadas</p>' : '<button type="button" class="btn sm" id="ana-apply-' + esc(it.id) + '" data-act="ana-apply" data-id="' + esc(it.id) + '"' + (S.readonly ? ' disabled' : '') + '>Aplicar a mis metas</button>') + '</div>';
+}
+function anaOutHTML(it) {
+  const when = new Date(it.at);
+  const head = it.kind === 'coach' ? 'Pediste: ' + it.q : (it.kind === 'hab' ? 'Hábitos · ' : '') + (anaP(it.period).k === 'day' ? 'Día' : anaP(it.period).label) + ' · ' + fmtDay(keyOf(when)) + ', ' + fmtClock(when);
+  return '<div class="ana-out"><p class="ana-when">' + esc(head) + '</p><div class="ana-text">' + fmtAiText(it.text) + '</div>' +
+    (it.prop && hasCond('tca') ? '' : it.prop ? anaPropHTML(it) : '') + (it.habits ? habPropHTML(it.habits, 'ana', it.id) : '') + '</div>';
+}
+function anaCardHTML(kind) {
+  const isH = kind === 'hab', per = isH ? S.ana.hperiod : S.ana.period;
+  const opts = isH ? ANA_P.filter(p => p.k !== 'day') : ANA_P;
+  const busy = S.ana.busy === kind, other = S.ana.busy && !busy;
+  const items = S.ana.items.filter(x => x.kind === kind);
+  const last = items[0];
+  const dis = S.readonly || !S.loaded.aianalysis || S.ana.busy ? ' disabled' : '';
+  return '<section class="card ana" id="card-ana-' + kind + '"><div class="card-h"><h2>' + (isH ? 'Análisis de tus hábitos' : 'Análisis con IA') + '</h2><span class="meta">Con IA</span></div>' +
+    '<p class="prose">' + (isH ? 'La IA revisa qué hábitos cumpliste, tus rachas y qué ajustar para que te sea más fácil.' : (hasCond('tca') ? 'La IA revisa tus comidas, agua, sueño, ejercicio y hábitos, y te dice qué salió bien y qué ajustar.' : 'La IA revisa lo que registraste: calorías consumidas y quemadas frente a tu meta, proteína y nutrientes, agua, sueño, ejercicio y hábitos, y te dice cómo mejorar en tu caso.')) + '</p>' +
+    '<div class="segc small" role="group" aria-label="Periodo">' + opts.map(p => '<button type="button" id="ana-' + kind + '-' + p.k + '" data-act="ana-p" data-kind="' + kind + '" data-v="' + p.k + '" aria-pressed="' + (per === p.k) + '"' + (S.ana.busy ? ' disabled' : '') + '>' + p.label + '</button>').join('') + '</div>' +
+    '<button type="button" class="btn" id="ana-run-' + kind + '" data-act="ana-run" data-kind="' + kind + '"' + dis + '>' + (busy ? 'Analizando…' : 'Analizar ' + anaP(per).msg.replace(' de hoy', '')) + '</button>' +
+    (other ? '<p class="hint">Espera a que termine el otro análisis.</p>' : '') +
+    (S.ana.err[kind] ? '<p class="form-err">' + esc(S.ana.err[kind]) + '</p>' : '') +
+    (last ? anaOutHTML(last) : '') +
+    (items.length > 1 ? '<details class="hist"><summary>Análisis anteriores (' + (items.length - 1) + ')</summary>' + items.slice(1).map(anaOutHTML).join('') + '</details>' : '') +
+    '<p class="hint">Responde con IA (Claude): puede equivocarse y no reemplaza a tu médico. Usa un mensaje de tu cupo diario' + (S.chat.remaining != null ? ' (te quedan ' + S.chat.remaining + ' hoy)' : '') + '.</p></section>';
+}
 function coachCardHTML() {
   const busy = S.ana.busy === 'coach';
   const items = S.ana.items.filter(x => x.kind === 'coach');
@@ -179,156 +258,3 @@ function v4Subscribe() {
   v4Tick = setInterval(v4Notify, 30000);
   setTimeout(v4Notify, 1500);
 }
-function v4Change(t) { return !!(t.dataset && (t.dataset.rf || t.dataset.hf) && v4Input(t)); }
-HOY.rems = remsTodayHTML;
-HOY.aiday = aiDayHTML;
-HOY_ORDER.splice(HOY_ORDER.indexOf('meds') + 1, 0, 'rems');
-HOY_ORDER.push('aiday');
-
-/* ---------- arranque ---------- */
-async function refreshData() {
-  if (!store.userId || S.refreshing || !S.dataReady) return;
-  if (saver.pend.size || saver.busy.size || S.inflight > 0 || deleting.size) return;
-  S.refreshing = true;
-  const wv = store.wv;
-  /* si algo se guardó o se borró mientras leía, esa lectura ya es vieja: se descarta */
-  const quiet = () => store.wv === wv && !saver.pend.size && !saver.busy.size && S.inflight <= 0 && !deleting.size;
-  try { if (await store.load(quiet)) store.emit(); S.offline = false; }
-  catch (e) { if (e && e.code === 'unavailable') S.offline = true; }
-  S.refreshing = false;
-  refreshStatus();
-}
-function showLoadError(msg) {
-  S.offline = true;
-  refreshStatus();
-  const v = $('#view-hoy');
-  for (const x of $$('.view')) x.hidden = x !== v;
-  v.innerHTML = '<section class="card"><div class="card-h"><h2>Sin datos por ahora</h2></div><p class="prose">' + esc(msg) + '</p>' +
-    '<button type="button" class="btn" data-act="reload">Intentar de nuevo</button></section>';
-}
-let appBound = false;
-function bindApp() {
-  if (appBound) return;
-  appBound = true;
-  document.addEventListener('click', onClick);
-  document.addEventListener('input', onInput);
-  document.addEventListener('change', onChange);
-  document.addEventListener('submit', onSubmit);
-  document.addEventListener('keydown', onKey);
-  document.addEventListener('toggle', e => {
-    const d = e.target;
-    if (d && d.dataset && d.dataset.hist) {
-      if (d.open) S.openHist = d.dataset.hist;
-      else if (S.openHist === d.dataset.hist) S.openHist = null;
-    }
-  }, true);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') { saver.flushAll(); if (S.sheet && S.sheet.step === 'scan') { stopScan(); setScanMsg('La cámara se pausó. Toca volver y abre el escáner otra vez, o escribe el código.'); } return; }
-    if (S.tab === 'hoy') renderHoy(['meds', 'meters']);
-    if (Date.now() - store.lastLoad > 60000) refreshData();
-  });
-  window.addEventListener('pagehide', () => saver.flushAll());
-  window.addEventListener('online', () => { S.offline = false; refreshStatus(); refreshData(); });
-  setInterval(() => {
-    const tk = todayKey();
-    if (S.lastToday !== tk) {
-      const wasToday = S.viewKey === S.lastToday;
-      S.lastToday = tk;
-      if (wasToday) S.viewKey = tk;
-      renderActive();
-      return;
-    }
-    if (S.tab === 'hoy' && S.viewKey === tk && S.dataReady) renderHoy(['meds']);
-  }, 30000);
-  try {
-    let lastW = 0, rt = 0;
-    const obs = new ResizeObserver(entries => {
-      const w = Math.round(entries[0].contentRect.width);
-      if (w === lastW) return;
-      lastW = w;
-      clearTimeout(rt);
-      rt = setTimeout(() => drawCharts($('#view-' + S.tab)), 120);
-    });
-    obs.observe($('#main'));
-  } catch (e) {}
-}
-async function startApp(user) {
-  if (S.started || !user || S.recovering) return;
-  S.started = true;
-  store.kind = 'cloud';
-  store.userId = user.id;
-  S.userEmail = user.email || '';
-  S.canWrite = true;
-  $('#splash').hidden = true;
-  $('#auth').hidden = true;
-  $('#app').hidden = false;
-  bindApp();
-  setTab(lsGet(LS_TAB) || 'hoy');
-  setStatus('loading');
-  try {
-    await store.load();
-  } catch (e) {
-    const raw = (e && e.raw) || {};
-    const missing = /PGRST205|42P01|does not exist|Could not find the table/i.test(String(raw.code || '') + ' ' + String(raw.message || e.message || ''));
-    showLoadError(missing
-      ? 'La base de datos de Ascend todavía no está lista: falta crear la tabla de registros.'
-      : 'No se pudieron cargar tus datos. Revisa tu conexión e intenta de nuevo.');
-    return;
-  }
-  S.dataReady = true;
-  storeReadyResolve();
-  subscribeAll();
-  v4Subscribe();
-  refreshStatus();
-  renderActive();
-  if (!Object.keys(store.docs).length && !S.readonly) { setTab('guia'); openPlan(); }
-}
-async function boot() {
-  bindAuth();
-  if (!sb) {
-    showAuth(CONFIGURED
-      ? 'No se pudo cargar la conexión. Revisa tu internet y recarga la página.'
-      : 'Esta copia de Ascend todavía no está conectada a su base de datos: falta poner la URL y la clave de Supabase en index.html.');
-    return;
-  }
-  if (/type=recovery/.test(location.hash)) S.recovering = true;
-  sb.auth.onAuthStateChange((event, session) => {
-    if (event === 'PASSWORD_RECOVERY') { S.recovering = true; setTimeout(() => showAuth('', 'recovery'), 0); return; }
-    if (event === 'SIGNED_OUT') { if (S.started) setTimeout(() => location.reload(), 0); return; }
-    if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session && session.user && !S.recovering) {
-      const u = session.user;
-      setTimeout(() => startApp(u), 0);
-    }
-  });
-  try {
-    const res = await sb.auth.getSession();
-    const session = res && res.data ? res.data.session : null;
-    if (S.recovering) { showAuth('', 'recovery'); return; }
-    if (session && session.user) startApp(session.user);
-    else if (!S.started) showAuth();
-  } catch (e) {
-    showAuth('No se pudo conectar. Revisa tu internet y recarga la página.');
-  }
-}
-/* =====================================================================
-   Ascend v5: seguridad y privacidad
-   - cifrado de extremo a extremo opcional (bóveda con frase secreta y código de recuperación)
-   - verificación en dos pasos (TOTP) opcional
-   - cierre de sesión por inactividad, cerrar sesión en todos los dispositivos
-   - permiso explícito antes de enviar datos a la IA
-   - eliminar la cuenta, contraseñas más fuertes
-   ===================================================================== */
-const SEC = {
-  VAULT: 'sec/vault', CONSENT: 'config/consent', POLICY_V: '2026-10-05',
-  vault: { meta: null, key: null, remembered: false, bad: [] },
-  mfa: { on: null },
-  consent: null,
-  inflight: 0, last: 0, lastW: 0, pendingAi: null, started: null,
-  /* la sesión de esta carga quedó cerrada: nada puede volver a abrir la app hasta que la página recargue */
-  dead: false
-};
-let secGateP = null;
-const SEC_PBKDF_IT = 600000, SEC_REC_IT = 100000;
-const SEC_B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
-const SEC_IDLE = [[0, 'Nunca'], [15, '15 minutos'], [60, '1 hora'], [480, '8 horas']];
-const SEC_COMMON = ['password', 'contrasena', 'contraseña', '123456', '12345678', '123456789', '1234567890', 'qwerty', 'qwertyuiop', 'asdfgh', 'zxcvbn', 'abc123', '111111', 'iloveyou', 'teamo', 'admin', 'ascend', 'colombia', 'futbol', 'football', 'millonarios', 'nacional', 'america', 'welcome', 'bienvenido'];

@@ -1,4 +1,112 @@
 'use strict';
+function guideCardHTML() {
+  const dis = S.readonly || !S.loaded.guide ? ' disabled' : '';
+  const secs = GUIDE_SECTIONS.map(sec => [sec, guideList(sec.k)]);
+  const any = secs.some(x => x[1].length);
+  const sel = draft('gd-sec', 'rules');
+  return '<section class="card" id="card-guide"><div class="card-h"><h2>Mis indicaciones</h2></div>' +
+    (any ? secs.filter(x => x[1].length).map(([sec, items]) => '<p class="sh-sec">' + esc(sec.label) + '</p><ul class="rules' + (sec.k === 'avoid' ? ' avoid' : '') + '">' +
+      items.map(it => {
+        const tag = 'gd:' + it.id, armed = S.confirmDel === tag;
+        return '<li class="gi"><div class="gi-x"><strong>' + esc(it.t) + '</strong>' + (it.d ? '<span>' + esc(it.d) + '</span>' : '') + '</div>' +
+          '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="gdx-' + esc(it.id) + '" data-act="gd-del" data-sec="' + sec.k + '" data-id="' + esc(it.id) + '"' + dis + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></li>';
+      }).join('') + '</ul>').join('')
+      : '<p class="empty">Anota aquí lo que te indiquen tu médico o tu nutricionista, para tenerlo a mano.</p>') +
+    '<form class="form" data-form="guide" novalidate>' +
+      '<div class="grid2"><div class="field"><label class="lbl" for="gd-sec">Sección</label><select id="gd-sec" data-draft' + dis + '>' + GUIDE_SECTIONS.map(s2 => '<option value="' + s2.k + '"' + (s2.k === sel ? ' selected' : '') + '>' + s2.label + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label class="lbl" for="gd-t">Indicación</label><input type="text" id="gd-t" data-draft maxlength="80" autocomplete="off" value="' + esc(draft('gd-t', '')) + '"' + dis + '></div></div>' +
+      '<div class="field"><label class="lbl" for="gd-d">Detalle (opcional)</label><input type="text" id="gd-d" data-draft maxlength="240" autocomplete="off" value="' + esc(draft('gd-d', '')) + '"' + dis + '></div>' +
+      '<p class="form-err">' + esc(S.formErr.guide || '') + '</p>' +
+      '<button type="submit" class="btn" id="gd-add"' + dis + '>Agregar</button>' +
+    '</form></section>';
+}
+function shopCardHTML() {
+  const checked = S.shopping || {};
+  const base = guideShop(), custom = S.shopCustom || [];
+  const nDone = base.concat(custom).filter(x => checked[x.k]).length, nAll = base.length + custom.length;
+  const dis = S.readonly || !S.loaded.shopping ? ' disabled' : '';
+  const chip = x => '<button type="button" class="chip" id="s-' + esc(x.k) + '" data-act="shop" data-k="' + esc(x.k) + '" aria-pressed="' + !!checked[x.k] + '"' + dis + '><span class="tick"></span><span>' + esc(x.label) + '</span></button>';
+  return '<section class="card" id="card-shop"><div class="card-h"><h2>Lista de compras</h2><span class="meta">' + (nAll ? nDone + ' de ' + nAll : 'Vacía') + '</span></div>' +
+    (nAll ? '<div class="shop">' + base.map(chip).join('') +
+      custom.map(x => '<div class="shop-row">' + chip(x) + '<button type="button" class="xbtn" id="sx-' + esc(x.k) + '" data-act="shop-del" data-k="' + esc(x.k) + '" aria-label="' + esc('Quitar ' + x.label) + '"' + dis + '>Quitar</button></div>').join('') + '</div>' : '') +
+    '<div class="row shop-acts">' + (nDone ? '<button type="button" class="link" id="shop-clear" data-act="shop-clear"' + dis + '>Desmarcar todo</button>' : '') +
+      '<button type="button" class="btn sm quiet" id="shop-suggest" data-act="shop-suggest"' + dis + '>Sugerir según mi plan</button></div>' +
+    '<form class="form" data-form="shop" novalidate><div class="field"><label class="lbl" for="shop-new">Agregar producto</label><div class="add-row"><input type="text" id="shop-new" data-draft maxlength="80" value="' + esc(draft('shop-new', '')) + '"' + (S.readonly ? ' readonly' : '') + '><button type="submit" class="btn" id="shop-add"' + dis + '>Agregar</button></div></div>' +
+    '<p class="form-err">' + esc(S.formErr.shop || '') + '</p></form></section>';
+}
+function shopSuggestions() {
+  const g = profileGoal(), veg = hasDiet('vegetariana'), sg = hasDiet('sin_gluten'), sl = hasDiet('sin_lactosa');
+  const L = ['Frutas enteras para la semana', 'Verduras para almuerzo y cena', 'Huevos', veg ? 'Tofu o queso campesino' : 'Pollo, pescado o carne magra', 'Fríjol, lenteja o garbanzo', 'Arroz, papa, plátano o yuca', sg ? 'Avena certificada sin gluten' : 'Avena en hojuelas', sl ? 'Leche y yogur deslactosados' : 'Leche y yogur natural', 'Frutos secos sin sal', 'Aceite de oliva o de canola'];
+  if (g === 'subir' || g === 'musculo') L.push('Aguacate', 'Mantequilla de maní sin azúcar');
+  if (g === 'subir') L.push(sl ? 'Leche entera deslactosada' : 'Leche entera');
+  if (g === 'bajar') L.push('Verduras para picar entre comidas', 'Aromáticas sin azúcar');
+  if (sg) L.push('Pan o pasta con sello «sin gluten»');
+  return L;
+}
+function suggestShop() {
+  if (S.readonly || !S.loaded.shopping) return;
+  const have = new Set(guideShop().concat(S.shopCustom || []).map(x => norm(x.label)));
+  const add = shopSuggestions().filter(l => !have.has(norm(l))).map(l => ({ k: 'sg-' + norm(l).replace(/ /g, '-').slice(0, 40), label: l }));
+  if (!add.length) { toast('Tu lista ya tiene todo lo sugerido.'); return; }
+  S.shopCustom = (S.shopCustom || []).concat(add).slice(0, MAX_SHOP);
+  saveShop();
+  renderGuia();
+  toast('Agregué ' + add.length + ' productos a tu lista.');
+}
+function renderGuia() {
+  const root = $('#view-guia');
+  if (!root) return;
+  swap(root, planCardHTML() + chatCardHTML() + guideCardHTML() + shopCardHTML() + tipsHTML());
+  const log = $('#chat-log');
+  if (log) log.scrollTop = log.scrollHeight;
+}
+function saveGuide() { if (S.loaded.guide) saver.queue('config/guide', clone(S.guide || {}), 200); }
+function submitGuide(form) {
+  if (S.readonly || !S.loaded.guide) return;
+  const sec = (($('#gd-sec', form) || {}).value) || 'rules';
+  const t = ((($('#gd-t', form) || {}).value) || '').trim().slice(0, 80);
+  const dd = ((($('#gd-d', form) || {}).value) || '').trim().slice(0, 240);
+  S.formErr.guide = '';
+  if (!GUIDE_SECTIONS.some(x => x.k === sec)) return;
+  if (!t) S.formErr.guide = 'Escribe la indicación.';
+  else if (guideList(sec).length >= MAX_GUIDE) S.formErr.guide = 'Esa sección ya tiene ' + MAX_GUIDE + ' indicaciones.';
+  if (S.formErr.guide) { renderGuia(); return; }
+  S.guide = Object.assign({}, S.guide);
+  S.guide[sec] = guideList(sec).concat({ id: uid(), t, d: dd });
+  delete S.drafts['gd-t'];
+  delete S.drafts['gd-d'];
+  S.drafts['gd-sec'] = sec;
+  saveGuide();
+  renderGuia();
+  focusEl('gd-t');
+}
+
+/* ---------- Ajustes: hábitos y privacidad ---------- */
+function saveHabits(items) {
+  S.habits = { items: items.slice(0, MAX_HABITS).map(x => {
+    const o = { k: x.k, label: x.label };
+    for (const f of ['freq', 'times', 'start', 'end', 'remind', 'note', 'createdAt']) if (x[f] != null && x[f] !== '' && x[f] !== 0) o[f] = x[f];
+    if (Array.isArray(x.days) && x.days.length && x.freq === 'days') o.days = x.days.slice();
+    if (o.freq === 'daily') delete o.freq;
+    if (!o.freq || o.freq === 'days') delete o.times;
+    return o;
+  }) };
+  saver.queue('config/habits', clone(S.habits), 200);
+}
+function habitsCardHTML() {
+  const dis = S.readonly || !S.loaded.habits ? ' disabled' : '';
+  const own = !!(S.habits && Array.isArray(S.habits.items));
+  const list = habitsList();
+  return '<section class="card" id="card-habits"><div class="card-h"><h2>Tus hábitos del día</h2><span class="meta">' + (own ? 'Personalizados' : 'Según tu objetivo') + '</span></div>' +
+    (list.length ? '<div class="meds">' + list.map(x => {
+      const tag = 'hb:' + x.k, armed = S.confirmDel === tag;
+      return '<div class="med"><div class="med-info"><span class="med-n">' + esc(x.label) + '</span></div><div class="med-btns"><button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="hbx-' + esc(x.k) + '" data-act="hb-del" data-k="' + esc(x.k) + '"' + dis + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></div></div>';
+    }).join('') + '</div>' : '<p class="empty">Sin hábitos. Agrega los que quieras marcar cada día.</p>') +
+    '<form class="form" data-form="habit" novalidate><div class="field"><label class="lbl" for="hb-new">Nuevo hábito</label><div class="add-row"><input type="text" id="hb-new" data-draft maxlength="60" autocomplete="off" value="' + esc(draft('hb-new', '')) + '"' + dis + '><button type="submit" class="btn" id="hb-add"' + dis + '>Agregar</button></div></div>' +
+    '<p class="form-err">' + esc(S.formErr.habit || '') + '</p></form>' +
+    (own ? '<button type="button" class="link" id="hb-reset" data-act="hb-reset"' + dis + '>Volver a los de mi objetivo</button>' : '') +
+    '<p class="hint">Aparecen en Hoy para marcarlos cada día. Lo que ya marcaste no cambia.</p></section>';
+}
 function submitHabit(form) {
   if (S.readonly || !S.loaded.habits) return;
   const label = ((($('#hb-new', form) || {}).value) || '').trim().slice(0, 60);
@@ -143,153 +251,3 @@ function aiContext() {
   if (rp.length) L.push('Recordatorios para hoy o vencidos: ' + rp.slice(0, 10).map(r => r.t).join('; ').slice(0, 400) + '.');
   return L.join('\n').slice(0, 6000);
 }
-function chatErrText(res, data) {
-  if (!res) return 'Sin conexión. Revisa tu internet e intenta de nuevo.';
-  const e = data && data.error;
-  if (res.status === 503) return 'El asistente con IA todavía no está activo en esta app.';
-  if (res.status === 401) return 'Tu sesión venció. Cierra sesión y vuelve a entrar.';
-  if (res.status === 429) return e === 'limit' ? 'Llegaste al límite de ' + (data.limit || '') + ' mensajes de hoy. Vuelve mañana.' : 'El asistente está muy ocupado hoy. Intenta más tarde.';
-  if (res.status === 400 || res.status === 413) return 'No pude enviar ese mensaje: es muy largo o está vacío.';
-  return 'No se pudo responder ahora. Intenta de nuevo en un momento.';
-}
-async function chatSend(text) {
-  text = String(text || '').trim().slice(0, 1500);
-  const c = S.chat;
-  if (!text || c.busy || S.readonly || !S.loaded.aichat) return;
-  c.items.push({ role: 'user', text, at: Date.now() });
-  c.busy = true;
-  c.err = '';
-  delete S.drafts['chat-in'];
-  renderChat();
-  let res = null, data = null;
-  try {
-    const sess = await sb.auth.getSession();
-    const tok = sess && sess.data && sess.data.session ? sess.data.session.access_token || '' : '';
-    const messages = c.items.slice(-12).map(m => ({ role: m.role, content: String(m.text || '').slice(0, 3000) }));
-    res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: JSON.stringify({ messages, context: aiContext() }) });
-    try { data = await res.json(); } catch (e) { data = null; }
-  } catch (e) { res = null; }
-  c.busy = false;
-  if (res && res.ok && data && typeof data.text === 'string') {
-    c.items.push({ role: 'assistant', text: data.text.slice(0, 6000), prop: data.proposal && typeof data.proposal === 'object' ? data.proposal : null, habits: Array.isArray(data.habits) ? data.habits.slice(0, 6) : null, at: Date.now() });
-    if (typeof data.remaining === 'number') c.remaining = data.remaining;
-    if (c.items.length > MAX_CHAT) c.items = c.items.slice(-MAX_CHAT);
-    saveChat();
-  } else {
-    c.items.pop();
-    S.drafts['chat-in'] = text;
-    c.err = chatErrText(res, data);
-  }
-  renderChat();
-  if (!c.err) focusEl('chat-in');
-}
-function applyProposal(i) {
-  const it = S.chat.items[i];
-  if (!it || !it.prop || it.applied || S.readonly || !S.loaded.settings) return;
-  const chk = proposalCheck(it.prop), o = chk.out;
-  if (!Object.keys(o).length) return;
-  const nutri = Object.assign({}, S.settings.nutri);
-  for (const k of NK) if (o[k] != null) nutri[k] = o[k];
-  S.settings.nutri = nutri;
-  if (o.waterGoal != null) S.settings.waterGoal = o.waterGoal;
-  if (o.sleepGoal != null) S.settings.sleepGoal = o.sleepGoal;
-  if (o.stepGoal != null) S.settings.stepGoal = o.stepGoal;
-  saveSettings();
-  it.applied = true;
-  saveChat();
-  renderGuia();
-  toast('Metas aplicadas.' + (chk.skipped.length ? ' No cambié ' + chk.skipped.join(', ') + '.' : ''));
-}
-
-/* ---------- eventos de lo nuevo ---------- */
-function planClick(act, el, id) {
-  const st = S.sheet;
-  switch (act) {
-    case 'plan-open': openPlan(); return true;
-    case 'pl-set':
-      if (!st || st.kind !== 'plan') return true;
-      for (const f of ['birth', 'height', 'weight']) { const x = document.getElementById('pl-' + f); if (x) st.in[f] = x.value; }
-      st.in[el.dataset.f] = el.dataset.v;
-      st.err = '';
-      renderSheet();
-      return true;
-    case 'pl-tog': {
-      if (!st || st.kind !== 'plan') return true;
-      for (const f of ['birth', 'height', 'weight']) { const x = document.getElementById('pl-' + f); if (x) st.in[f] = x.value; }
-      const arr = st.in[el.dataset.f], v = el.dataset.v, j = arr.indexOf(v);
-      if (j >= 0) arr.splice(j, 1); else arr.push(v);
-      renderSheet();
-      return true;
-    }
-    case 'chat-quick': chatSend(el.dataset.q); return true;
-    case 'chat-clear': confirmOrDo('chat-clear', () => { S.chat.items = []; S.chat.err = ''; saveChat(); }, renderGuia); return true;
-    case 'ai-apply': applyProposal(Number(el.dataset.i)); return true;
-    case 'gd-del': {
-      const sec = el.dataset.sec;
-      if (!S.loaded.guide || !GUIDE_SECTIONS.some(x => x.k === sec)) return true;
-      confirmOrDo('gd:' + id, () => { S.guide = Object.assign({}, S.guide); S.guide[sec] = guideList(sec).filter(x => x.id !== id); saveGuide(); }, renderGuia);
-      return true;
-    }
-    case 'shop-suggest': suggestShop(); return true;
-    case 'hb-del': {
-      const k = el.dataset.k;
-      if (!S.loaded.habits) return true;
-      confirmOrDo('hb:' + k, () => { saveHabits(habitsList().filter(x => x.k !== k)); }, renderAjustes);
-      return true;
-    }
-    case 'hb-reset':
-      if (S.readonly || !S.loaded.habits) return true;
-      S.habits = null;
-      delDoc('config/habits');
-      renderAjustes();
-      return true;
-    default: return false;
-  }
-}
-function planInput(t) {
-  if (t.dataset.pl && S.sheet && S.sheet.kind === 'plan') { S.sheet.in[t.dataset.pl] = t.value; return true; }
-  return false;
-}
-function planSubmit(kind) {
-  const f = document.querySelector('[data-form="' + kind + '"]');
-  switch (kind) {
-    case 'sh-plan': submitPlanForm(); return true;
-    case 'sh-plansave': savePlan(); return true;
-    case 'chat': chatSend(f ? ($('#chat-in', f) || {}).value : ''); return true;
-    case 'guide': submitGuide(f); return true;
-    case 'habit': submitHabit(f); return true;
-    default: return false;
-  }
-}
-
-function cleanProfile(d) {
-  const o = {};
-  if (GOALS.some(g => g.k === d.goal)) o.goal = d.goal;
-  if (d.pace === 'suave' || d.pace === 'moderado') o.pace = d.pace;
-  if (ACTIVITY.some(a => a.k === d.activity)) o.activity = d.activity;
-  if (Array.isArray(d.diet)) o.diet = d.diet.filter(k => DIETS.some(x => x.k === k));
-  if (Array.isArray(d.cond)) o.cond = d.cond.filter(k => CONDITIONS.some(x => x.k === k));
-  if (d.onboarded) o.onboarded = true;
-  if (d.plan && typeof d.plan === 'object') o.plan = { at: /^\d{4}-\d{2}-\d{2}$/.test(String(d.plan.at || '')) ? d.plan.at : '', maint: Number(d.plan.maint) || null, kcal: Number(d.plan.kcal) || null };
-  return o;
-}
-
-/* =====================================================================
-   Ascend v4: hábitos con recurrencia, recordatorios, gimnasio y análisis con IA
-   ===================================================================== */
-S.reminders = []; S.loaded.reminders = false;
-S.routines = []; S.loaded.routines = false;
-S.rlists = null; S.loaded.rlists = false;
-S.loaded.aianalysis = false;
-S.ana = { period: 'week', hperiod: 'week', busy: '', err: {}, items: [] };
-S.hab = { tab: ['rem', 'boss'].indexOf(lsGet('ascend-htab')) >= 0 ? lsGet('ascend-htab') : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
-IMPORT_COLS.push('reminders', 'routines');
-const MAX_REMS = 800, MAX_RLISTS = 30, MAX_ROUTINES = 30, MAX_ANA = 15;
-const isKey = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
-const isHM = s => /^\d{2}:\d{2}$/.test(String(s || ''));
-const weekStart = k => addDays(k, -((parseKey(k).getDay() + 6) % 7));
-const monthStart = k => k.slice(0, 8) + '01';
-const monthEnd = k => { const d = parseKey(k); return keyOf(new Date(d.getFullYear(), d.getMonth() + 1, 0)); };
-const clampInt = (v, lo, hi, fb) => { const n = parseInt(v, 10); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : fb; };
-const plural = (n, a, b) => n + ' ' + (n === 1 ? a : b);
-const dayWord = k => { const tk = todayKey(); return k === tk ? 'Hoy' : k === addDays(tk, 1) ? 'Mañana' : k === addDays(tk, -1) ? 'Ayer' : fmtDay(k); };

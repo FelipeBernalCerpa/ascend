@@ -50,6 +50,34 @@ FOODS.push(
   FD('empanada_haw', 'Empanada hawaiana (jamón y queso)', 8, [298, 11, 25, 2, 1.5, 17.5, 7, 490], [['unidad', 80]], 'a', 'empanadas hawaiana jamon queso'),
   FD('empanada_cq', 'Empanada de carne y queso', 8, [290, 10, 26, 1, 2, 16, 6, 440], [['unidad', 80]], 'a', 'empanadas carne queso mixta')
 );
+FOODS.push(
+  // Pechugas (platos)
+  FD('pechuga_plancha', 'Pechuga de pollo a la plancha', 0, [165, 31, 0, 0, 0, 3.6, 1, 74], [['porción', 150], ['g', 100]], '', 'pechuga pollo plancha asada'),
+  FD('pechuga_gratinada', 'Pechuga gratinada (con queso)', 0, [205, 26, 2, 1, 0, 11, 5, 330], [['porción', 170]], 'a', 'pechuga pollo gratinada queso'),
+  FD('pechuga_champi', 'Pechuga en salsa de champiñones', 0, [175, 23, 4, 2, 0.5, 7, 3, 300], [['porción', 180]], 'a', 'pechuga pollo champinones salsa'),
+  FD('pechuga_haw', 'Pechuga hawaiana (jamón, piña y queso)', 0, [200, 25, 6, 5, 0.3, 8, 4, 380], [['porción', 180]], 'a', 'pechuga pollo hawaiana jamon pina queso'),
+  // Más empanadas
+  FD('empanada_papa', 'Empanada de papa (sola)', 8, [250, 5, 31, 1, 2.5, 13, 3, 340], [['unidad', 80]], 'a', 'empanadas papa vegetariana'),
+  FD('empanada_pq', 'Empanada de pollo y queso', 8, [282, 10, 26, 1, 1.8, 16, 6, 420], [['unidad', 80]], 'a', 'empanadas pollo queso'),
+  FD('empanada_mixta', 'Empanada mixta (carne y pollo)', 8, [265, 9.5, 26, 1, 2, 14, 3.5, 360], [['unidad', 80]], 'a', 'empanadas mixta carne pollo'),
+  FD('empanada_veg', 'Empanada vegetariana', 8, [238, 6, 28, 2, 3, 12, 2.5, 330], [['unidad', 80]], 'a', 'empanadas vegetariana verduras'),
+  // Más hamburguesas
+  FD('ham_tocineta', 'Hamburguesa con tocineta y queso', 8, [275, 15, 20, 4, 1.5, 16, 6, 560], [['unidad', 230]], 'a', 'hamburguesa tocineta bacon queso'),
+  FD('ham_bbq', 'Hamburguesa BBQ', 8, [268, 14, 24, 7, 1.5, 14, 5, 580], [['unidad', 230]], 'a', 'hamburguesa bbq'),
+  FD('ham_pollo_plancha', 'Hamburguesa de pollo a la plancha', 8, [200, 16, 20, 4, 1.5, 7, 2, 520], [['unidad', 220]], 'a', 'hamburguesa pollo plancha a la plancha'),
+  FD('ham_huevo', 'Hamburguesa con huevo', 8, [288, 16, 22, 5, 1.5, 17, 6, 620], [['unidad', 240]], 'a', 'hamburguesa huevo colombiana'),
+  FD('ham_gourmet', 'Hamburguesa artesanal (gourmet)', 8, [300, 17, 22, 5, 1.5, 18, 7, 560], [['unidad', 250]], 'a', 'hamburguesa artesanal gourmet'),
+  // Jugos naturales (en agua, sin azúcar añadida)
+  FD('jugo_mango', 'Jugo de mango natural', 6, [55, 0.4, 13, 12, 0.4, 0.2, 0, 3], [['vaso', 250]], 'la', 'jugo mango natural en agua'),
+  FD('jugo_maracuya', 'Jugo de maracuyá natural', 6, [50, 0.5, 12, 11, 0.5, 0.1, 0, 5], [['vaso', 250]], 'la', 'jugo maracuya natural'),
+  FD('jugo_lulo', 'Jugo de lulo natural', 6, [40, 0.5, 9, 7, 0.4, 0.1, 0, 3], [['vaso', 250]], 'la', 'jugo lulo natural'),
+  FD('jugo_mora', 'Jugo de mora natural', 6, [45, 0.6, 10, 8, 0.6, 0.2, 0, 2], [['vaso', 250]], 'la', 'jugo mora natural'),
+  FD('jugo_guanabana', 'Jugo de guanábana natural', 6, [60, 0.6, 14, 12, 0.5, 0.3, 0, 5], [['vaso', 250]], 'la', 'jugo guanabana natural'),
+  FD('jugo_pina', 'Jugo de piña natural', 6, [50, 0.4, 12, 10, 0.3, 0.1, 0, 2], [['vaso', 250]], 'la', 'jugo pina natural'),
+  FD('jugo_fresa', 'Jugo de fresa natural', 6, [40, 0.5, 9, 7, 0.5, 0.1, 0, 2], [['vaso', 250]], 'la', 'jugo fresa natural'),
+  FD('jugo_tomate_arbol', 'Jugo de tomate de árbol natural', 6, [45, 0.6, 10, 8, 0.6, 0.1, 0, 3], [['vaso', 250]], 'la', 'jugo tomate de arbol natural'),
+  FD('jugo_papaya', 'Jugo de papaya natural', 6, [45, 0.4, 11, 9, 0.6, 0.1, 0, 4], [['vaso', 250]], 'la', 'jugo papaya natural')
+);
 const FOOD_BY = Object.fromEntries(FOODS.map(f => [f.id, f]));
 const EX_BY = Object.fromEntries(EXERCISES.map(x => [x.k, x]));
 const LEGACY_MEALS = Object.fromEntries(MEALS.map(m => [m.k, m.label]));
@@ -307,44 +335,4 @@ function foodHTML(c) {
     lm.map(k => '<p class="prose"><strong>' + esc(LEGACY_MEALS[k] || k) + ':</strong> ' + esc(c.day.meals[k]) + '</p>').join('') + '</details>' : '';
   return '<section id="card-food" class="card">' + head + nutriGridHTML(nu) + '<div class="fmeals">' + meals + '</div>' + legacy +
     '<p class="hint">Toca un alimento para cambiar la cantidad. Los valores son aproximados; en carnes, pescados y verduras no incluyen la sal que se agrega al cocinar (agrégala como «Sal»).</p></section>';
-}
-
-/* ---------- HOY: actividad y energía ---------- */
-function stepsOutHTML(en) {
-  if (!en.steps) return 'Copia los pasos que marca tu celular o tu reloj.';
-  return '≈ ' + fmtNum(en.km, 1, 1) + ' km' + (en.stepsKcal != null ? ' · ' + fmtInt(r10(en.stepsKcal)) + ' kcal' : '');
-}
-function actRowHTML(a, perH) {
-  const tag = 'act:' + a.id, armed = S.confirmDel === tag;
-  const kc = actKcal(a, perH);
-  const gym = a.k === 'gym' && Array.isArray(a.ex);
-  const vol = gym ? gymVolume(a) : null;
-  const sub = [fmtInt(a.min) + ' min', kc != null ? fmtInt(r10(kc)) + ' kcal' : '', gym && a.ex.length ? plural(a.ex.length, 'ejercicio', 'ejercicios') : '', gym && vol.kg ? fmtInt(vol.kg) + ' kg' : '', a.hi ? 'intenso' : ''].filter(Boolean).join(' · ');
-  const main = gym ? '<button type="button" class="fe-main" id="ae-' + esc(a.id) + '" data-act="gym-edit" data-id="' + esc(a.id) + '"' + ro() + '>' : '<div class="fe-main static">';
-  return '<div class="fe">' + main + '<span class="fe-n">' + esc(a.name || 'Ejercicio') + '</span><span class="fe-s">' + sub + '</span>' +
-    (gym && a.ex.length ? '<span class="gx-sum">' + a.ex.map(x => '<span>' + esc(x.n) + ': ' + esc(setsText(x.sets)) + '</span>').join('') + '</span>' : '') +
-    (gym ? '</button>' : '</div>') +
-    '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="ax-' + esc(a.id) + '" data-act="act-del" data-id="' + esc(a.id) + '"' + ro() + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></div>';
-}
-function energyBoxHTML(c, en) {
-  const nu = dayNutri(c.day);
-  if (!en.bmr) {
-    const miss = [];
-    if (!en.profileOk) miss.push('tu sexo y tu fecha de nacimiento en Ajustes');
-    if (!en.w) miss.push('tu peso en Progreso');
-    return '<div class="energy"><p class="prose"><strong>Calorías quemadas.</strong> Para calcularlas, registra ' + miss.join(' y ') + '.</p><div class="row">' +
-      (!en.profileOk ? '<button type="button" class="btn sm quiet" id="en-prof" data-go="ajustes">Ir a Ajustes</button>' : '') +
-      (!en.w ? '<button type="button" class="btn sm quiet" id="en-peso" data-go="progreso">Ir a Progreso</button>' : '') + '</div>' +
-      (nu.count ? '<div class="en-row"><span>Consumidas</span><b>' + fmtInt(nu.kcal) + ' kcal</b></div>' : '') + '</div>';
-  }
-  const row = (a, b, cls) => '<div class="en-row' + (cls ? ' ' + cls : '') + '"><span>' + a + '</span><b>' + b + '</b></div>';
-  let h = '<div class="energy">' +
-    row('Consumidas', nu.count ? fmtInt(nu.kcal) + ' kcal' : '—') +
-    row('Quemadas (estimado del día)', fmtInt(r10(en.total)) + ' kcal') +
-    '<p class="en-parts">En reposo ' + fmtInt(r10(en.bmr)) + ' · Digestión y vida diaria ' + fmtInt(r10(en.life)) + ' · Pasos ' + fmtInt(r10(en.stepsKcal)) + ' · Ejercicio ' + fmtInt(r10(en.exKcal)) + '</p>';
-  if (nu.count) {
-    const b = r10(nu.kcal - en.total);
-    h += row('Balance', (b > 0 ? '+' : b < 0 ? '−' : '') + fmtInt(Math.abs(b)) + ' kcal', 'en-bal');
-  }
-  return h + '</div><p class="hint">Estimación con tu peso, edad y sexo (±15 %): úsala para ver tendencias. Si los pasos ya incluyen una caminata, no la registres también como ejercicio.</p>';
 }

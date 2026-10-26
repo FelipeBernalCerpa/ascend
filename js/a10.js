@@ -1,4 +1,43 @@
 'use strict';
+async function getJSON(url, ms) {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const t = setTimeout(() => { try { if (ctl) ctl.abort(); } catch (e) {} }, ms || 9000);
+  try {
+    const res = await fetch(url, ctl ? { signal: ctl.signal } : undefined);
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok && res.status !== 404) throw new Error('HTTP ' + res.status);
+    return { status: res.status, data };
+  } finally { clearTimeout(t); }
+}
+function offName(p) {
+  const pick = v => (typeof v === 'string' ? v : v && typeof v === 'object' ? (v.es || v.main || v.en || Object.values(v).find(x => typeof x === 'string') || '') : '');
+  return String(pick(p.product_name_es) || pick(p.product_name) || '').trim().slice(0, 100);
+}
+function offBrand(p) {
+  const b = p.brands;
+  return String(Array.isArray(b) ? (b[0] || '') : String(b || '').split(',')[0]).trim().slice(0, 60);
+}
+function offToFood(p, code) {
+  const nm = p && p.nutriments && typeof p.nutriments === 'object' ? p.nutriments : {};
+  const num = k => { const v = nm[k]; if (v === '' || v == null) return null; const n = Number(v); return isFinite(n) && n >= 0 ? n : null; };
+  let kcal = num('energy-kcal_100g');
+  if (kcal == null) { const kj = num('energy-kj_100g') != null ? num('energy-kj_100g') : num('energy_100g'); if (kj != null) kcal = kj / 4.184; }
+  if (kcal == null) return null;
+  let na = num('sodium_100g');
+  if (na == null) { const salt = num('salt_100g'); if (salt != null) na = salt / 2.5; }
+  const raw = [kcal, num('proteins_100g'), num('carbohydrates_100g'), num('sugars_100g'), num('fiber_100g'), num('fat_100g'), num('saturated-fat_100g'), na == null ? null : na * 1000];
+  const missing = NK.filter((k, i) => raw[i] == null);
+  const v = raw.map((x, i) => (x == null ? 0 : i === 0 || i === 7 ? Math.round(x) : r1(x)));
+  const qtyS = String(p.quantity || '');
+  const liquid = /\d\s*(ml|cl|l|lt|litros?)\b/i.test(qtyS);
+  const units = [];
+  const sq = Number(p.serving_quantity);
+  if (isFinite(sq) && sq > 0 && sq <= 5000) units.push({ u: 'porción' + (p.serving_size ? ' (' + String(p.serving_size).slice(0, 30) + ')' : ''), g: r1(sq) });
+  const pk = /\d\s*[x×]\s*\d/i.test(qtyS) ? null : qtyS.match(/(\d+(?:[.,]\d+)?)\s*(g|gr|ml)\b/i);
+  if (pk) { const pg = Number(pk[1].replace(',', '.')); if (pg > 0 && pg <= 5000 && !units.some(u => Math.abs(u.g - pg) < 0.5)) units.push({ u: 'empaque completo', g: pg }); }
+  return { src: 'off', id: 'off-' + code, code, name: offName(p) || 'Producto ' + code, brand: offBrand(p), v, units, liquid, approx: false, missing };
+}
 async function offProduct(code) {
   const r = await getJSON('https://world.openfoodfacts.org/api/v2/product/' + encodeURIComponent(code) + '.json?fields=' + OFF_FIELDS, 10000);
   const d = r.data;
@@ -382,75 +421,4 @@ function gDayXP(k) {
   const food = Array.isArray(d.food) ? d.food.length : 0;
   xp += Math.min(food, 5) * 3;
   return xp;
-}
-function gDayActive(k) {
-  const d = S.days[k];
-  if (!d) return false;
-  const hs = habDayStats(k);
-  return hs.done > 0 || dayExercise(d) || dayWaterMet(d) || sleepHours(d.sleep) != null || (Array.isArray(d.food) && d.food.length > 0);
-}
-function gTotalXP() {
-  let t = 0;
-  for (const k of Object.keys(S.days)) t += gDayXP(k);
-  return t + (typeof bossBonusXP === 'function' ? bossBonusXP() : 0) + (typeof retoXP === 'function' ? retoXP() : 0);
-}
-function gCurStreak() {
-  const tk = todayKey();
-  let k = gDayActive(tk) ? tk : addDays(tk, -1);
-  let n = 0;
-  while (gDayActive(k)) { n++; k = addDays(k, -1); }
-  return n;
-}
-function gDaysInactive() {
-  const tk = todayKey();
-  for (let i = 0; i < 400; i++) if (gDayActive(addDays(tk, -i))) return i;
-  return 400;
-}
-function gameStats() {
-  const raw = gTotalXP();
-  const di = gDaysInactive();
-  const factor = 1 - Math.min(0.3, Math.max(0, di - 3) * 0.02);
-  const xp = Math.round(raw * factor);
-  let ri = 0;
-  for (let i = 0; i < RANKS.length; i++) if (xp >= RANKS[i].min) ri = i;
-  const r = RANKS[ri], next = RANKS[ri + 1];
-  let divName = '', divNow = r.min, divEnd = r.min, barPct = 0, toNext = 0, nextLabel = '';
-  if (next) {
-    const third = (next.min - r.min) / 3;
-    let d = Math.floor((xp - r.min) / third);
-    if (d > 2) d = 2; if (d < 0) d = 0;
-    divName = ['III', 'II', 'I'][d];
-    divNow = Math.round(r.min + d * third);
-    divEnd = Math.round(r.min + (d + 1) * third);
-    barPct = Math.max(0, Math.min(100, Math.round((xp - divNow) / (divEnd - divNow) * 100)));
-    toNext = Math.max(0, divEnd - xp);
-    const nextName = d < 2 ? r.name + ' ' + ['II', 'I'][d] : next.name + ' III';
-    nextLabel = 'Te faltan ' + fmtInt(toNext) + ' XP para ' + nextName + '.';
-  } else {
-    const lvl = Math.floor((xp - r.min) / 5000) + 1;
-    divNow = r.min + (lvl - 1) * 5000; divEnd = r.min + lvl * 5000;
-    barPct = Math.max(0, Math.min(100, Math.round((xp - divNow) / 5000 * 100)));
-    toNext = Math.max(0, divEnd - xp);
-    nextLabel = 'Leyenda nivel ' + lvl + ' · ' + fmtInt(toNext) + ' XP para el siguiente.';
-  }
-  const streak = gCurStreak();
-  return { raw, xp, rankObj: r, divName, divNow, divEnd, barPct, toNext, nextLabel, streak,
-    shields: Math.min(3, Math.floor(streak / 7)), todayXp: gDayXP(todayKey()), decaying: di > 3 && raw > 0 };
-}
-function gameCardHTML() {
-  if (!S.daysLoaded || !S.loaded.settings) return '<section class="card game" id="card-game"><p class="empty">Cargando tu progreso…</p></section>';
-  const g = gameStats(), r = g.rankObj, rn = esc(r.name + (g.divName ? ' ' + g.divName : ''));
-  return '<section class="card game" id="card-game">' +
-    '<div class="g-top">' +
-      '<div class="g-badge" style="--rc:' + r.color + '"><span class="g-ic">' + r.icon + '</span><small>' + esc((r.name + (g.divName ? ' ' + g.divName : '')).toUpperCase()) + '</small></div>' +
-      '<div class="g-meta"><div class="g-rank">' + rn + '</div><div class="g-sub">' + fmtInt(g.raw) + ' XP en total</div></div>' +
-      (g.todayXp ? '<span class="g-today">+' + g.todayXp + ' hoy</span>' : '') +
-    '</div>' +
-    '<div class="g-xprow"><span>' + fmtInt(g.divNow) + ' XP</span><span>' + fmtInt(g.divEnd) + ' XP</span></div>' +
-    '<div class="g-bar"><i style="width:' + g.barPct + '%"></i></div>' +
-    '<div class="g-hint">' + esc(g.nextLabel) + '</div>' +
-    '<div class="g-streak"><span class="g-flame">🔥</span><div class="g-stxt"><b>' + g.streak + (g.streak === 1 ? ' día' : ' días') + '</b><small>' + (g.streak ? 'tu racha' : 'empieza una racha hoy') + '</small></div>' +
-      '<div class="g-shields" title="Escudos de racha">' + [0, 1, 2].map(i => '<span class="g-sh' + (i < g.shields ? ' on' : '') + '">🛡️</span>').join('') + '</div></div>' +
-    (g.decaying ? '<p class="g-decay">Tu nivel bajó un poco mientras descansabas. Vuelve hoy y lo recuperas en días.</p>' : '') +
-    '</section>';
 }

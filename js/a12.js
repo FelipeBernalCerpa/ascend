@@ -1,4 +1,51 @@
 'use strict';
+function measureHTML(kind) {
+  const isW = kind === 'weight', field = kind, unit = isW ? 'kg' : 'cm', title = isW ? 'Peso' : 'Estatura';
+  const every = isW ? 7 : 28;
+  const list = S.measures.filter(m => hasNum(m[field])).sort(byDate);
+  const last = list[list.length - 1], prev = list[list.length - 2];
+  const tk = todayKey();
+  let top;
+  if (!S.loaded.measures) top = '<p class="empty">Cargando tus mediciones…</p>';
+  else if (!last) top = '<p class="empty">Aún no hay registros de ' + title.toLowerCase() + '. Agrega el primero abajo.</p>';
+  else {
+    const delta = prev ? Number(last[field]) - Number(prev[field]) : null;
+    const next = addDays(last.date, every), due = next <= tk;
+    const sign = d => (d > 0 ? '+' : d < 0 ? '−' : '±');
+    top = '<div class="m-top"><div><span class="big">' + fmtNum(last[field], 1, 1) + '</span><span class="unit">' + unit + '</span></div>' +
+      '<div class="m-meta"><span>' + fmtDate(last.date) + '</span>' + (delta != null ? '<span class="delta">' + sign(delta) + fmtNum(Math.abs(delta), 1, 1) + ' ' + unit + ' desde el ' + fmtShort(prev.date) + '</span>' : '') + '</div></div>' +
+      '<p class="pill ' + (due ? 'accent' : 'muted') + ' next">' + (due ? (isW ? 'Toca pesarte esta semana' : 'Ya puedes medirte este mes') : (isW ? 'Próxima pesada: ' : 'Próxima medición: ') + fmtDay(next)) + '</p>';
+    S.charts[kind] = { points: list.map(m => ({ x: parseKey(m.date).getTime(), y: Number(m[field]) })), unit, dec: 1, label: title + ' en el tiempo' };
+    top += '<div class="chart" data-chart="' + kind + '"></div>';
+  }
+  const tip = isW
+    ? 'Pésate una vez por semana, en ayunas, después de ir al baño y en la misma báscula.'
+    : 'Mídete una vez al mes, en la mañana, sin zapatos y con los talones contra la pared. En la tarde mides hasta 1 cm menos por la compresión normal de la columna.';
+  const dId = kind + '-date', vId = kind + '-val';
+  const dv = draft(dId, tk);
+  let soon = '';
+  if (!isW && last) {
+    const since = diffDays(last.date, dv || tk);
+    if (since >= 0 && since < 28) soon = '<p class="hint warn-t">Tu última medición fue hace ' + since + (since === 1 ? ' día' : ' días') + '. El hueso cambia en meses: la próxima es el ' + fmtDay(addDays(last.date, 28)) + '.</p>';
+  }
+  const rows = list.slice().reverse().map((m, i, arr) => {
+    const p = arr[i + 1];
+    const dd = p ? Number(m[field]) - Number(p[field]) : null;
+    const tag = 'm:' + m.id + ':' + field;
+    const armed = S.confirmDel === tag;
+    return '<div class="hrow"><span class="h-date">' + fmtShort(m.date) + '</span><span class="h-val">' + fmtNum(m[field], 1, 1) + ' ' + unit + '</span><span class="h-delta">' +
+      (dd == null ? '' : (dd > 0 ? '+' : dd < 0 ? '−' : '±') + fmtNum(Math.abs(dd), 1, 1)) + '</span>' +
+      '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="del-' + kind + '-' + m.id + '" data-act="m-del" data-id="' + esc(m.id) + '" data-field="' + field + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
+  }).join('');
+  const hist = list.length ? '<details class="hist" data-hist="' + kind + '"' + (S.openHist === kind ? ' open' : '') + '><summary>Historial (' + list.length + ')</summary>' + rows + '</details>' : '';
+  return '<section class="card" id="card-' + kind + '"><div class="card-h"><h2>' + title + '</h2>' + (isW ? '<span class="meta">1 vez por semana</span>' : '<span class="meta">1 vez al mes</span>') + '</div>' + top +
+    '<p class="hint">' + tip + '</p>' +
+    '<form class="form" data-form="' + kind + '" novalidate><div class="grid2">' +
+      '<div class="field"><label class="lbl" for="' + dId + '">Fecha</label><input type="date" id="' + dId + '" data-draft max="' + tk + '" value="' + esc(dv) + '"></div>' +
+      '<div class="field"><label class="lbl" for="' + vId + '">' + title + ' (' + unit + ')</label><input type="text" inputmode="decimal" id="' + vId + '" data-draft value="' + esc(draft(vId, '')) + '"></div>' +
+    '</div>' + soon + '<p class="form-err">' + esc(S.formErr[kind] || '') + '</p>' +
+    '<button type="submit" class="btn" id="' + kind + '-save"' + ro() + '>' + (isW ? 'Guardar peso' : 'Guardar estatura') + '</button></form>' + hist + '</section>';
+}
 function statsRange(n) {
   const tk = todayKey();
   const r = { days: 0, doses: 0, taken: 0, sN: 0, sSum: 0, wN: 0, wSum: 0, bSum: 0, bDue: 0, ex: 0, intense: 0, fN: 0, nut: sumN([]), stN: 0, stSum: 0 };
@@ -232,72 +279,4 @@ function questionsHTML() {
       '<p class="form-err">' + esc(S.formErr.q || '') + '</p>' +
       '<button type="submit" class="btn" id="q-save"' + ro() + '>Agregar pregunta</button>' +
     '</form></section>';
-}
-function summaryHTML() {
-  return '<section class="card" id="card-sum"><div class="card-h"><h2>Resumen para la cita</h2></div>' +
-    '<p class="prose">Junta los últimos 30 días, tus mediciones, exámenes, medicamentos y preguntas pendientes en un texto para mostrar o copiar.</p>' +
-    '<div class="row"><button type="button" class="btn" id="sum-build" data-act="sum-build">' + (S.summary ? 'Actualizar resumen' : 'Armar resumen') + '</button>' +
-    (S.summary ? '<button type="button" class="btn quiet" id="sum-copy" data-act="sum-copy">Copiar</button>' : '') + '</div>' +
-    (S.summary ? '<label class="lbl sr" for="sum-out">Resumen</label><textarea id="sum-out" class="sum-out" rows="16" readonly>' + esc(S.summary) + '</textarea>' + (S.copied ? '<p class="hint ok-t">Copiado.</p>' : '') : '') +
-  '</section>';
-}
-function buildSummary() {
-  const tk = todayKey(), L = [];
-  L.push('Resumen para la cita · ' + fmtDate(tk));
-  let days = 0, doses = 0, taken = 0, skipped = 0, sN = 0, sSum = 0, wN = 0, wSum = 0;
-  for (let i = 0; i < 30; i++) {
-    const k = addDays(tk, -i), d = S.days[k];
-    if (!d) continue;
-    days++;
-    const ds = dosesFor(k);
-    doses += ds.length;
-    for (const x of ds) { const r = d.meds && d.meds[x.key]; if (r && r.s === 'taken') taken++; else if (r && r.s === 'skipped') skipped++; }
-    const h = sleepHours(d.sleep); if (h != null) { sN++; sSum += h; }
-    const w = sum(d.water); if (w > 0) { wN++; wSum += w; }
-  }
-  L.push('');
-  L.push('Últimos 30 días (' + days + (days === 1 ? ' día' : ' días') + ' con registro)');
-  if (doses) L.push('· Medicamentos: ' + taken + ' de ' + doses + ' tomas marcadas como tomadas (' + Math.round(taken / doses * 100) + ' %). Saltadas: ' + skipped + '.');
-  if (sN) L.push('· Sueño promedio: ' + fmtNum(sSum / sN, 1) + ' h (' + sN + ' noches).');
-  if (wN) L.push('· Agua promedio: ' + fmtInt(wSum / wN) + ' ml al día (' + wN + ' días).');
-  const rs = statsRange(30);
-  if (rs.fN) L.push('· Alimentación registrada (' + rs.fN + (rs.fN === 1 ? ' día' : ' días') + '), promedio por día: ' + fmtInt(rs.nut.kcal / rs.fN) + ' kcal; proteína ' + fmtNut('p', rs.nut.p / rs.fN) + ' g; grasas ' + fmtNut('f', rs.nut.f / rs.fN) + ' g (saturadas ' + fmtNut('sf', rs.nut.sf / rs.fN) + ' g); carbohidratos ' + fmtNut('c', rs.nut.c / rs.fN) + ' g; azúcar ' + fmtNut('s', rs.nut.s / rs.fN) + ' g; fibra ' + fmtNut('fi', rs.nut.fi / rs.fN) + ' g; sodio ' + fmtInt(rs.nut.na / rs.fN) + ' mg.');
-  if (rs.stN) L.push('· Pasos promedio: ' + fmtInt(rs.stSum / rs.stN) + ' al día (' + rs.stN + (rs.stN === 1 ? ' día' : ' días') + ').');
-  if (rs.ex) L.push('· Días con ejercicio: ' + rs.ex + (rs.intense ? ' (' + rs.intense + ' con cardio intenso)' : '') + '.');
-  if (!days) L.push('· Aún no hay días registrados.');
-  const ms = [['weight', 'Peso', 'kg'], ['height', 'Estatura', 'cm']];
-  const mLines = [];
-  for (const [field, label, unit] of ms) {
-    const list = S.measures.filter(m => hasNum(m[field])).sort(byDate);
-    const a = list[list.length - 1], b = list[list.length - 2];
-    if (a) mLines.push(label + ': ' + fmtNum(a[field], 1, 1) + ' ' + unit + ' (' + fmtDate(a.date) + ')' + (b ? '. Anterior: ' + fmtNum(b[field], 1, 1) + ' ' + unit + ' (' + fmtDate(b.date) + ')' : '') + '.');
-  }
-  const bs = bmiSeries();
-  if (bs.length) { const bb = bs[bs.length - 1]; mLines.push('IMC: ' + fmtNum(bb.bmi, 1, 1) + ' (' + fmtDate(bb.date) + ').'); }
-  const fats = S.measures.filter(m => hasNum(m.fat)).sort(byDate);
-  if (fats.length) { const f = fats[fats.length - 1]; mLines.push('Grasa corporal: ' + fmtNum(f.fat, 1, 1) + ' % (' + fmtDate(f.date) + ').'); }
-  const mus = S.measures.filter(m => hasNum(m.muscle)).sort(byDate);
-  if (mus.length) { const f = mus[mus.length - 1]; mLines.push('Masa muscular: ' + fmtNum(f.muscle, 1, 1) + ' kg (' + fmtDate(f.date) + ').'); }
-  if (mLines.length) { L.push(''); L.push('Mediciones'); mLines.forEach(x => L.push('· ' + x)); }  const groups = new Map();
-  for (const l of S.labs.slice().sort(byDate)) groups.set(labGroupKey(l), l);
-  if (groups.size) {
-    L.push(''); L.push('Últimos exámenes');
-    for (const l of groups.values()) { const r = rangeShort(l); L.push('· ' + labName(l) + ': ' + fmtNum(l.value) + (l.unit ? ' ' + l.unit : '') + ' (' + fmtDate(l.date) + ')' + (r ? ', referencia ' + r : '') + '.'); }
-  }
-  const active = S.meds.filter(m => m.active);
-  if (active.length) {
-    L.push(''); L.push('Medicamentos actuales');
-    for (const m of active) L.push('· ' + (m.name || 'Sin nombre') + (m.dose ? ' ' + m.dose : '') + ': ' + medSchedText(m) + '.');
-  }
-  const pend = S.questions.filter(q => !q.done);
-  if (pend.length) {
-    L.push(''); L.push('Preguntas pendientes');
-    for (const d of DOCTORS) {
-      const qs = pend.filter(q => (q.doctor || 'otro') === d.k).sort(byCreated);
-      if (!qs.length) continue;
-      L.push(d.label + ':');
-      for (const q of qs) L.push('· ' + q.text);
-    }
-  }
-  return L.join('\n');
 }

@@ -1,4 +1,24 @@
 'use strict';
+function shCustomHTML(st) {
+  const cf = st.cf || {}, basis = cf.basis || 'g';
+  const bBtn = (k, label) => '<button type="button" class="tgl" id="cf-b-' + k + '" data-act="cf-basis" data-v="' + k + '" aria-pressed="' + (basis === k) + '">' + label + '</button>';
+  const pu = basis === 'ml' ? 'ml' : 'g';
+  return sheetTop(cf.id ? 'Editar alimento' : 'Crear alimento', true) +
+    '<form class="sh-form" data-form="sh-custom" novalidate>' +
+      '<div class="field"><label class="lbl" for="cf-name">Nombre</label><input type="text" id="cf-name" data-cf="name" maxlength="80" autocomplete="off" value="' + esc(cf.name || '') + '"></div>' +
+      '<div class="field"><label class="lbl" for="cf-brand">Marca (opcional)</label><input type="text" id="cf-brand" data-cf="brand" maxlength="60" autocomplete="off" value="' + esc(cf.brand || '') + '"></div>' +
+      '<div class="field"><span class="lbl">La tabla nutricional está por</span><div class="toggles">' + bBtn('g', '100 g') + bBtn('ml', '100 ml') + bBtn('por', '1 porción') + '</div></div>' +
+      '<div class="grid2">' +
+        '<div class="field"><label class="lbl" for="cf-pname">Nombre de la porción</label><input type="text" id="cf-pname" data-cf="pname" maxlength="40" autocomplete="off" placeholder="paquete, unidad…" value="' + esc(cf.pname || '') + '"></div>' +
+        '<div class="field"><label class="lbl" for="cf-pg">Tamaño de la porción (' + pu + ')' + (basis === 'por' ? '' : ', opcional') + '</label><input type="text" inputmode="decimal" id="cf-pg" data-cf="pg" autocomplete="off" value="' + esc(cf.pg || '') + '"></div>' +
+      '</div>' +
+      '<p class="sh-sec">Valores ' + (basis === 'por' ? 'por porción' : 'por 100 ' + pu) + '</p>' +
+      '<div class="grid2">' + CF_FIELDS.map(x => '<div class="field"><label class="lbl" for="cf-' + x[0] + '">' + x[1] + ' (' + x[2] + ')</label><input type="text" inputmode="decimal" id="cf-' + x[0] + '" data-cf="' + x[0] + '" autocomplete="off" value="' + esc(cf[x[0]] == null ? '' : cf[x[0]]) + '"></div>').join('') + '</div>' +
+      '<div class="field"><label class="lbl" for="cf-code">Código de barras (opcional)</label><input type="text" inputmode="numeric" id="cf-code" data-cf="code" maxlength="14" autocomplete="off" value="' + esc(cf.code || '') + '"></div>' +
+      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
+      '<button type="submit" class="btn" id="cf-save"' + (S.readonly || !S.loaded.foods ? ' disabled' : '') + '>Guardar alimento</button>' +
+    '</form>';
+}
 function shScanHTML(st) {
   const sc = st.scan || {};
   return sheetTop('Código de barras', true) +
@@ -307,42 +327,3 @@ function editEntry(id) {
 }
 
 /* Open Food Facts: productos empacados y códigos de barras */
-async function getJSON(url, ms) {
-  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-  const t = setTimeout(() => { try { if (ctl) ctl.abort(); } catch (e) {} }, ms || 9000);
-  try {
-    const res = await fetch(url, ctl ? { signal: ctl.signal } : undefined);
-    let data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
-    if (!res.ok && res.status !== 404) throw new Error('HTTP ' + res.status);
-    return { status: res.status, data };
-  } finally { clearTimeout(t); }
-}
-function offName(p) {
-  const pick = v => (typeof v === 'string' ? v : v && typeof v === 'object' ? (v.es || v.main || v.en || Object.values(v).find(x => typeof x === 'string') || '') : '');
-  return String(pick(p.product_name_es) || pick(p.product_name) || '').trim().slice(0, 100);
-}
-function offBrand(p) {
-  const b = p.brands;
-  return String(Array.isArray(b) ? (b[0] || '') : String(b || '').split(',')[0]).trim().slice(0, 60);
-}
-function offToFood(p, code) {
-  const nm = p && p.nutriments && typeof p.nutriments === 'object' ? p.nutriments : {};
-  const num = k => { const v = nm[k]; if (v === '' || v == null) return null; const n = Number(v); return isFinite(n) && n >= 0 ? n : null; };
-  let kcal = num('energy-kcal_100g');
-  if (kcal == null) { const kj = num('energy-kj_100g') != null ? num('energy-kj_100g') : num('energy_100g'); if (kj != null) kcal = kj / 4.184; }
-  if (kcal == null) return null;
-  let na = num('sodium_100g');
-  if (na == null) { const salt = num('salt_100g'); if (salt != null) na = salt / 2.5; }
-  const raw = [kcal, num('proteins_100g'), num('carbohydrates_100g'), num('sugars_100g'), num('fiber_100g'), num('fat_100g'), num('saturated-fat_100g'), na == null ? null : na * 1000];
-  const missing = NK.filter((k, i) => raw[i] == null);
-  const v = raw.map((x, i) => (x == null ? 0 : i === 0 || i === 7 ? Math.round(x) : r1(x)));
-  const qtyS = String(p.quantity || '');
-  const liquid = /\d\s*(ml|cl|l|lt|litros?)\b/i.test(qtyS);
-  const units = [];
-  const sq = Number(p.serving_quantity);
-  if (isFinite(sq) && sq > 0 && sq <= 5000) units.push({ u: 'porción' + (p.serving_size ? ' (' + String(p.serving_size).slice(0, 30) + ')' : ''), g: r1(sq) });
-  const pk = /\d\s*[x×]\s*\d/i.test(qtyS) ? null : qtyS.match(/(\d+(?:[.,]\d+)?)\s*(g|gr|ml)\b/i);
-  if (pk) { const pg = Number(pk[1].replace(',', '.')); if (pg > 0 && pg <= 5000 && !units.some(u => Math.abs(u.g - pg) < 0.5)) units.push({ u: 'empaque completo', g: pg }); }
-  return { src: 'off', id: 'off-' + code, code, name: offName(p) || 'Producto ' + code, brand: offBrand(p), v, units, liquid, approx: false, missing };
-}

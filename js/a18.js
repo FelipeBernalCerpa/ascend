@@ -1,4 +1,70 @@
 'use strict';
+function openHabitEdit(k) {
+  if (S.readonly || !S.loaded.habits) return;
+  const h = k ? habs().find(x => x.k === k) : null;
+  const tk = todayKey();
+  const f = h ? { label: h.label, freq: h.freq, days: h.days.slice(), times: String(h.times), start: h.start || '', endMode: h.end ? 'date' : 'none', end: h.end || '', remind: h.remind, note: h.note }
+    : { label: '', freq: 'daily', days: [1, 2, 3, 4, 5], times: '3', start: tk, endMode: 'none', end: '', remind: '', note: '' };
+  const st = { kind: 'habit', step: 'edit', k: k || null, f, err: '' };
+  if (S.sheet) { S.sheet = st; renderSheet(); const c = $('#sheet-card'); if (c) c.scrollTop = 0; } else openSheet(st);
+  if (!k) focusEl('hf-label');
+}
+function shHabitHTML(st) {
+  const f = st.f, armed = S.confirmDel === 'hdel:' + st.k;
+  const tg = (act, v, on, label, extra, cls) => '<button type="button" class="tgl' + (cls ? ' ' + cls : '') + '" id="' + act + '-' + v + '" data-act="' + act + '" data-v="' + v + '" aria-pressed="' + !!on + '"' + (extra || '') + '>' + label + '</button>';
+  const durs = [[21, '21 días'], [30, '30 días'], [66, '66 días'], [90, '90 días']];
+  return sheetTop(st.k ? 'Editar hábito' : 'Nuevo hábito') +
+    '<form class="sh-form" data-form="sh-habit" novalidate>' +
+      '<div class="field"><label class="lbl" for="hf-label">Hábito</label><input type="text" id="hf-label" data-hf="label" maxlength="60" autocomplete="off" placeholder="Leer 10 minutos" value="' + esc(f.label) + '"></div>' +
+      '<div class="field"><span class="lbl">Frecuencia</span><div class="toggles">' + HFREQ.map(x => tg('hf-freq', x.k, f.freq === x.k, x.label)).join('') + '</div></div>' +
+      (f.freq === 'days' ? '<div class="field"><span class="lbl">Qué días</span><div class="toggles days">' + WD_ORDER.map(n => tg('hf-day', n, f.days.indexOf(n) >= 0, WD1[n], ' aria-label="' + WD[n] + '"')).join('') + '</div></div>' : '') +
+      (f.freq === 'weekly' ? '<div class="field"><span class="lbl">Cuántas veces por semana</span><div class="toggles">' + [1, 2, 3, 4, 5, 6, 7].map(n => tg('hf-times', n, String(n) === String(f.times), String(n))).join('') + '</div></div>' : '') +
+      (f.freq === 'monthly' ? '<div class="field"><label class="lbl" for="hf-times">Cuántas veces al mes</label><div class="amt-row"><input type="text" inputmode="numeric" id="hf-times" data-hf="times" autocomplete="off" value="' + esc(f.times) + '">' +
+        [1, 2, 4, 8, 12].map(n => tg('hf-times', n, String(n) === String(f.times), String(n), '', 'q')).join('') + '</div></div>' : '') +
+      '<div class="grid2"><div class="field"><label class="lbl" for="hf-start">Empieza</label><input type="date" id="hf-start" data-hf="start" value="' + esc(f.start) + '"></div>' +
+      '<div class="field"><label class="lbl" for="hf-remind">Aviso (opcional)</label><input type="time" id="hf-remind" data-hf="remind" value="' + esc(f.remind) + '"></div></div>' +
+      '<div class="field"><span class="lbl">Durante cuánto tiempo</span><div class="toggles">' + tg('hf-end', 'none', f.endMode === 'none', 'Sin fin') + tg('hf-end', 'date', f.endMode === 'date', 'Hasta una fecha') + '</div></div>' +
+      (f.endMode === 'date' ? '<div class="field"><label class="lbl" for="hf-endd">Termina el</label><input type="date" id="hf-endd" data-hf="end" value="' + esc(f.end) + '"></div>' +
+        '<div class="toggles">' + durs.map(x => tg('hf-dur', x[0], false, x[1])).join('') + '</div>' : '') +
+      '<div class="field"><label class="lbl" for="hf-note">Nota (opcional)</label><input type="text" id="hf-note" data-hf="note" maxlength="200" autocomplete="off" value="' + esc(f.note) + '"></div>' +
+      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
+      '<button type="submit" class="btn" id="hf-save">' + (st.k ? 'Guardar cambios' : 'Crear hábito') + '</button>' +
+      (st.k ? '<button type="button" class="btn sm ' + (armed ? 'danger' : 'quiet') + '" id="hf-del" data-act="hab-del" data-k="' + esc(st.k) + '">' + (armed ? 'Toca otra vez para borrarlo' : 'Borrar hábito') + '</button>' : '') +
+    '</form>' +
+    '<p class="hint">Lo que ya marcaste se conserva aunque cambies la frecuencia. Los avisos salen mientras Ascend está abierta.</p>';
+}
+function habFormSync() {
+  const st = S.sheet;
+  if (!st || st.kind !== 'habit') return;
+  for (const [id, f] of [['hf-label', 'label'], ['hf-start', 'start'], ['hf-remind', 'remind'], ['hf-endd', 'end'], ['hf-note', 'note'], ['hf-times', 'times']]) { const el = document.getElementById(id); if (el) st.f[f] = el.value; }
+}
+function habSave() {
+  const st = S.sheet;
+  if (!st || st.kind !== 'habit' || S.readonly) return;
+  habFormSync();
+  const f = st.f, label = String(f.label || '').trim().slice(0, 60);
+  const list = habitsList().map(x => Object.assign({}, x));
+  const tk = todayKey();
+  let err = '';
+  const times = f.freq === 'monthly' ? parseInt(f.times, 10) : f.freq === 'weekly' ? parseInt(f.times, 10) : 0;
+  if (!label) err = 'Escribe el hábito.';
+  else if (list.some(x => x.k !== st.k && norm(x.label) === norm(label))) err = 'Ya tienes un hábito con ese nombre.';
+  else if (!st.k && list.length >= MAX_HABITS) err = 'Puedes tener hasta ' + MAX_HABITS + ' hábitos.';
+  else if (f.freq === 'days' && !f.days.length) err = 'Elige al menos un día.';
+  else if (f.freq === 'weekly' && !(times >= 1 && times <= 7)) err = 'Elige de 1 a 7 veces por semana.';
+  else if (f.freq === 'monthly' && !(times >= 1 && times <= 31)) err = 'Escribe de 1 a 31 veces al mes.';
+  else if (f.start && !isKey(f.start)) err = 'Revisa la fecha de inicio.';
+  else if (f.endMode === 'date' && !isKey(f.end)) err = 'Elige la fecha en que termina.';
+  else if (f.endMode === 'date' && f.end < (f.start || tk)) err = 'La fecha final debe ser después del inicio.';
+  if (err) { sheetErr(st, err); return; }
+  const h = { k: st.k || 'h-' + uid(), label, freq: f.freq, days: f.freq === 'days' ? WD_ORDER.filter(d => f.days.indexOf(d) >= 0) : [], times: times || 0, start: f.start || '', end: f.endMode === 'date' ? f.end : '', remind: isHM(f.remind) ? f.remind : '', note: String(f.note || '').trim().slice(0, 200) };
+  const i = list.findIndex(x => x.k === h.k);
+  if (i >= 0) { h.createdAt = list[i].createdAt; list[i] = h; } else { h.createdAt = Date.now(); list.push(h); }
+  saveHabits(list);
+  closeSheet();
+  renderActive();
+  toast(i >= 0 ? 'Hábito actualizado.' : 'Hábito creado: ' + label + '.');
+}
 function habDelete(k) {
   confirmOrDo('hdel:' + k, () => {
     saveHabits(habitsList().filter(x => x.k !== k));
@@ -225,64 +291,4 @@ function remsTodayHTML(c) {
   const n = list.filter(r => !r.done && r.due <= c.k).length;
   return '<section id="card-rems" class="card"><div class="card-h"><h2>Recordatorios</h2><span class="meta">' + plural(n, 'pendiente', 'pendientes') + '</span></div><div class="rems">' + shown.map(r => remRowHTML(r, true, 'h')).join('') + '</div>' +
     '<button type="button" class="link" id="rems-go" data-act="rem-goto">Ver todos</button></section>';
-}
-function remSectionHTML() {
-  const tk = todayKey(), v = S.hab.rview;
-  if (!S.loaded.reminders || !S.loaded.rlists) return '<section class="card"><p class="empty">Cargando tus recordatorios…</p></section>';
-  if (v === 'home') return remHomeHTML(tk);
-  return remListHTML(v, tk);
-}
-function remHomeHTML(tk) {
-  const c = remCounts(tk);
-  const tile = (v, label, n, cls) => '<button type="button" class="rtile ' + cls + '" id="rv-' + v + '" data-act="rem-view" data-v="' + v + '"><span class="rtile-n">' + n + '</span><span class="rtile-l">' + label + '</span></button>';
-  const lists = rlists();
-  const nl = S.hab.newList;
-  const canNotif = typeof Notification !== 'undefined' && Notification.permission === 'default';
-  return '<section class="card" id="card-rhome"><div class="rtiles">' + tile('today', 'Hoy', c.today, 't-today') + tile('scheduled', 'Programados', c.scheduled, 't-sched') + tile('all', 'Todos', c.all, 't-all') + tile('flagged', 'Marcados', c.flagged, 't-flag') + '</div>' +
-    '<button type="button" class="link rdone-link" id="rv-done" data-act="rem-view" data-v="done">Completados (' + c.done + ')</button></section>' +
-    '<section class="card" id="card-rlists"><div class="card-h"><h2>Mis listas</h2><span class="meta">' + lists.length + '</span></div><div class="rlists">' +
-      lists.map(l => '<button type="button" class="rlist" id="rl-' + esc(l.id) + '" data-act="rem-view" data-v="' + esc(l.id) + '"><i class="rdot" style="background:' + esc(l.color) + '"></i><span>' + esc(l.name) + '</span><b>' + (c.lists[l.id] || 0) + '</b></button>').join('') + '</div>' +
-      (nl ? rlistFormHTML(null) : '<button type="button" class="btn sm quiet add-top" id="rl-new" data-act="rl-new"' + (S.readonly || lists.length > MAX_RLISTS ? ' disabled' : '') + '>Nueva lista</button>') +
-      '<p class="hint">Agrupa tus recordatorios por tema: colegio, casa, compras, citas…</p></section>' +
-    '<section class="card"><div class="row between"><button type="button" class="btn" id="rem-new" data-act="rem-new"' + (S.readonly ? ' disabled' : '') + '>Nuevo recordatorio</button>' +
-      (canNotif ? '<button type="button" class="btn sm quiet" id="rem-notif" data-act="rem-notif">Activar avisos</button>' : '') + '</div>' +
-      '<p class="hint">Los avisos de hora salen mientras Ascend está abierta en tu celular o computador.</p></section>';
-}
-function rlistFormHTML(l) {
-  const col = S.hab.listColor || (l ? l.color : RCOLORS[1]);
-  return '<form class="form rl-form" data-form="' + (l ? 'rl-edit' : 'rl-new') + '" novalidate><div class="field"><label class="lbl" for="rl-name">Nombre de la lista</label><input type="text" id="rl-name" data-draft maxlength="40" autocomplete="off" value="' + esc(draft('rl-name', l ? l.name : '')) + '"></div>' +
-    '<div class="rcolors" role="group" aria-label="Color">' + RCOLORS.map(c => '<button type="button" class="rcolor" data-act="rl-color" data-v="' + c + '" aria-pressed="' + (c === col) + '" style="background:' + c + '" aria-label="Color"></button>').join('') + '</div>' +
-    '<p class="form-err">' + esc(S.formErr.rl || '') + '</p><div class="row"><button type="submit" class="btn sm" id="rl-save">' + (l ? 'Guardar lista' : 'Crear lista') + '</button><button type="button" class="btn sm quiet" id="rl-cancel" data-act="rl-cancel">Cancelar</button></div></form>';
-}
-function remListHTML(v, tk) {
-  const smart = { today: 'Hoy', scheduled: 'Programados', all: 'Todos', flagged: 'Marcados', done: 'Completados' };
-  const isList = !smart[v];
-  const l = isList ? rlistOf(v) : null;
-  if (isList && l.id !== v) { S.hab.rview = 'home'; return remHomeHTML(tk); }
-  let items = S.reminders.filter(r => remInView(r, v, tk));
-  items = v === 'done' ? items.sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0)) : items.sort(remSort);
-  const title = isList ? l.name : smart[v];
-  const showList = !isList;
-  let body = '';
-  if (!items.length) body = '<p class="empty">' + (v === 'done' ? 'Aún no hay recordatorios completados.' : v === 'today' ? 'Nada pendiente para hoy.' : 'No hay recordatorios aquí.') + '</p>';
-  else if (v === 'scheduled' || v === 'all') {
-    const groups = [];
-    for (const r of items) {
-      const g = v === 'all' ? rlistOf(r.l).name : (!r.due ? 'Sin fecha' : r.due < tk ? 'Vencidos' : dayWord(r.due));
-      let last = groups[groups.length - 1];
-      if (v === 'all') last = groups.find(x => x.g === g);
-      if (!last || last.g !== g) { last = { g, items: [] }; groups.push(last); }
-      last.items.push(r);
-    }
-    body = groups.map(gr => '<p class="sh-sec">' + esc(gr.g) + '</p><div class="rems">' + gr.items.map(r => remRowHTML(r, v === 'scheduled')).join('') + '</div>').join('');
-  } else body = '<div class="rems">' + items.map(r => remRowHTML(r, showList)).join('') + '</div>';
-  const armedClear = S.confirmDel === 'rem-clear';
-  const armedDel = S.confirmDel === 'rl-del';
-  const quick = v === 'done' ? '' : '<form class="rq" data-form="rem-quick" novalidate><label class="lbl sr" for="rq-in">Nuevo recordatorio</label><input type="text" id="rq-in" data-draft maxlength="120" autocomplete="off" placeholder="Nuevo recordatorio" enterkeyhint="done" value="' + esc(draft('rq-in', '')) + '"' + (S.readonly ? ' readonly' : '') + '><button type="submit" class="btn sm" id="rq-add"' + (S.readonly ? ' disabled' : '') + '>Agregar</button></form>';
-  return '<section class="card" id="card-rlist"><div class="rl-head"><button type="button" class="navbtn sm" id="rem-back" data-act="rem-view" data-v="home" aria-label="Volver a las listas">' + ICON.left + '</button>' +
-    '<h2>' + (isList ? '<i class="rdot" style="background:' + esc(l.color) + '"></i>' : '') + esc(title) + '</h2><span class="meta">' + (v === 'done' ? items.length : items.filter(r => !r.done).length) + '</span></div>' +
-    quick + body +
-    (v === 'done' && items.length ? '<button type="button" class="btn sm ' + (armedClear ? 'danger' : 'quiet') + '" id="rem-clear" data-act="rem-clear">' + (armedClear ? 'Toca otra vez para borrarlos' : 'Borrar completados') + '</button>' : '') +
-    (isList && l.id !== 'inbox' ? (S.hab.editList ? rlistFormHTML(l) : '<div class="row rl-acts"><button type="button" class="btn sm quiet" id="rl-edit" data-act="rl-edit">Editar lista</button><button type="button" class="btn sm ' + (armedDel ? 'danger' : 'quiet') + '" id="rl-del" data-act="rl-del">' + (armedDel ? 'Toca otra vez: sus recordatorios pasan a «Recordatorios»' : 'Borrar lista') + '</button></div>') : '') +
-    '</section>';
 }

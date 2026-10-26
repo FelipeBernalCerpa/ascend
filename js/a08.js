@@ -1,4 +1,43 @@
 'use strict';
+/* ---------- HOY: actividad y energía ---------- */
+function stepsOutHTML(en) {
+  if (!en.steps) return 'Copia los pasos que marca tu celular o tu reloj.';
+  return '≈ ' + fmtNum(en.km, 1, 1) + ' km' + (en.stepsKcal != null ? ' · ' + fmtInt(r10(en.stepsKcal)) + ' kcal' : '');
+}
+function actRowHTML(a, perH) {
+  const tag = 'act:' + a.id, armed = S.confirmDel === tag;
+  const kc = actKcal(a, perH);
+  const gym = a.k === 'gym' && Array.isArray(a.ex);
+  const vol = gym ? gymVolume(a) : null;
+  const sub = [fmtInt(a.min) + ' min', kc != null ? fmtInt(r10(kc)) + ' kcal' : '', gym && a.ex.length ? plural(a.ex.length, 'ejercicio', 'ejercicios') : '', gym && vol.kg ? fmtInt(vol.kg) + ' kg' : '', a.hi ? 'intenso' : ''].filter(Boolean).join(' · ');
+  const main = gym ? '<button type="button" class="fe-main" id="ae-' + esc(a.id) + '" data-act="gym-edit" data-id="' + esc(a.id) + '"' + ro() + '>' : '<div class="fe-main static">';
+  return '<div class="fe">' + main + '<span class="fe-n">' + esc(a.name || 'Ejercicio') + '</span><span class="fe-s">' + sub + '</span>' +
+    (gym && a.ex.length ? '<span class="gx-sum">' + a.ex.map(x => '<span>' + esc(x.n) + ': ' + esc(setsText(x.sets)) + '</span>').join('') + '</span>' : '') +
+    (gym ? '</button>' : '</div>') +
+    '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="ax-' + esc(a.id) + '" data-act="act-del" data-id="' + esc(a.id) + '"' + ro() + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></div>';
+}
+function energyBoxHTML(c, en) {
+  const nu = dayNutri(c.day);
+  if (!en.bmr) {
+    const miss = [];
+    if (!en.profileOk) miss.push('tu sexo y tu fecha de nacimiento en Ajustes');
+    if (!en.w) miss.push('tu peso en Progreso');
+    return '<div class="energy"><p class="prose"><strong>Calorías quemadas.</strong> Para calcularlas, registra ' + miss.join(' y ') + '.</p><div class="row">' +
+      (!en.profileOk ? '<button type="button" class="btn sm quiet" id="en-prof" data-go="ajustes">Ir a Ajustes</button>' : '') +
+      (!en.w ? '<button type="button" class="btn sm quiet" id="en-peso" data-go="progreso">Ir a Progreso</button>' : '') + '</div>' +
+      (nu.count ? '<div class="en-row"><span>Consumidas</span><b>' + fmtInt(nu.kcal) + ' kcal</b></div>' : '') + '</div>';
+  }
+  const row = (a, b, cls) => '<div class="en-row' + (cls ? ' ' + cls : '') + '"><span>' + a + '</span><b>' + b + '</b></div>';
+  let h = '<div class="energy">' +
+    row('Consumidas', nu.count ? fmtInt(nu.kcal) + ' kcal' : '—') +
+    row('Quemadas (estimado del día)', fmtInt(r10(en.total)) + ' kcal') +
+    '<p class="en-parts">En reposo ' + fmtInt(r10(en.bmr)) + ' · Digestión y vida diaria ' + fmtInt(r10(en.life)) + ' · Pasos ' + fmtInt(r10(en.stepsKcal)) + ' · Ejercicio ' + fmtInt(r10(en.exKcal)) + '</p>';
+  if (nu.count) {
+    const b = r10(nu.kcal - en.total);
+    h += row('Balance', (b > 0 ? '+' : b < 0 ? '−' : '') + fmtInt(Math.abs(b)) + ' kcal', 'en-bal');
+  }
+  return h + '</div><p class="hint">Estimación con tu peso, edad y sexo (±15 %): úsala para ver tendencias. Si los pasos ya incluyen una caminata, no la registres también como ejercicio.</p>';
+}
 function actHTML(c) {
   const d = c.day, dis = S.readonly || !S.daysLoaded ? ' disabled' : '';
   const en = energyFor(c.k, d);
@@ -197,23 +236,3 @@ function shQtyHTML(st) {
     '</form>';
 }
 const CF_FIELDS = [['kcal', 'Calorías', 'kcal'], ['p', 'Proteína', 'g'], ['c', 'Carbohidratos', 'g'], ['s', 'Azúcares', 'g'], ['fi', 'Fibra', 'g'], ['f', 'Grasa total', 'g'], ['sf', 'Grasa saturada', 'g'], ['na', 'Sodio', 'mg']];
-function shCustomHTML(st) {
-  const cf = st.cf || {}, basis = cf.basis || 'g';
-  const bBtn = (k, label) => '<button type="button" class="tgl" id="cf-b-' + k + '" data-act="cf-basis" data-v="' + k + '" aria-pressed="' + (basis === k) + '">' + label + '</button>';
-  const pu = basis === 'ml' ? 'ml' : 'g';
-  return sheetTop(cf.id ? 'Editar alimento' : 'Crear alimento', true) +
-    '<form class="sh-form" data-form="sh-custom" novalidate>' +
-      '<div class="field"><label class="lbl" for="cf-name">Nombre</label><input type="text" id="cf-name" data-cf="name" maxlength="80" autocomplete="off" value="' + esc(cf.name || '') + '"></div>' +
-      '<div class="field"><label class="lbl" for="cf-brand">Marca (opcional)</label><input type="text" id="cf-brand" data-cf="brand" maxlength="60" autocomplete="off" value="' + esc(cf.brand || '') + '"></div>' +
-      '<div class="field"><span class="lbl">La tabla nutricional está por</span><div class="toggles">' + bBtn('g', '100 g') + bBtn('ml', '100 ml') + bBtn('por', '1 porción') + '</div></div>' +
-      '<div class="grid2">' +
-        '<div class="field"><label class="lbl" for="cf-pname">Nombre de la porción</label><input type="text" id="cf-pname" data-cf="pname" maxlength="40" autocomplete="off" placeholder="paquete, unidad…" value="' + esc(cf.pname || '') + '"></div>' +
-        '<div class="field"><label class="lbl" for="cf-pg">Tamaño de la porción (' + pu + ')' + (basis === 'por' ? '' : ', opcional') + '</label><input type="text" inputmode="decimal" id="cf-pg" data-cf="pg" autocomplete="off" value="' + esc(cf.pg || '') + '"></div>' +
-      '</div>' +
-      '<p class="sh-sec">Valores ' + (basis === 'por' ? 'por porción' : 'por 100 ' + pu) + '</p>' +
-      '<div class="grid2">' + CF_FIELDS.map(x => '<div class="field"><label class="lbl" for="cf-' + x[0] + '">' + x[1] + ' (' + x[2] + ')</label><input type="text" inputmode="decimal" id="cf-' + x[0] + '" data-cf="' + x[0] + '" autocomplete="off" value="' + esc(cf[x[0]] == null ? '' : cf[x[0]]) + '"></div>').join('') + '</div>' +
-      '<div class="field"><label class="lbl" for="cf-code">Código de barras (opcional)</label><input type="text" inputmode="numeric" id="cf-code" data-cf="code" maxlength="14" autocomplete="off" value="' + esc(cf.code || '') + '"></div>' +
-      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="cf-save"' + (S.readonly || !S.loaded.foods ? ' disabled' : '') + '>Guardar alimento</button>' +
-    '</form>';
-}

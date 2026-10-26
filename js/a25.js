@@ -1,4 +1,60 @@
 'use strict';
+function quoteOfDay() {
+  if (!QUOTES.length) return null;
+  const k = (typeof todayKey === 'function') ? todayKey() : new Date().toISOString().slice(0, 10);
+  const d = (typeof parseKey === 'function') ? parseKey(k) : new Date(k);
+  const n = Math.floor(d.getTime() / 86400000);
+  return QUOTES[((n % QUOTES.length) + QUOTES.length) % QUOTES.length];
+}
+function quoteHTML() {
+  const q = quoteOfDay();
+  if (!q) return '';
+  return '<div class="quote-hoy" role="note"><p class="q-t">' + esc(q.t) + '</p><p class="q-a">' + esc(q.a) + '</p></div>';
+}
+
+/* ---------- v7: jefes finales editables ----------
+   Una meta grande dividida en etapas; cada etapa tiene hábitos que marcas. Al terminar todo, derrotas al jefe y ganas XP. */
+S.bosses = null; S.loaded.bosses = false;
+const MAX_BOSSES = 12, MAX_STAGES = 8, MAX_BITEMS = 12;
+const BOSS_ICONS = ['🧥', '🏃', '💪', '🏆', '🎯', '📚', '🧠', '🥇', '⛰️', '🔥', '💰', '🎸', '🩺', '🌱'];
+
+function bossesList() { return (S.bosses && Array.isArray(S.bosses.items) ? S.bosses.items : []).filter(b => b && b.id && b.name); }
+function saveBosses(items) {
+  S.bosses = { items: items.slice(0, MAX_BOSSES) };
+  saver.queue('config/bosses', clone(S.bosses), 200);
+}
+function bossProg(b) {
+  let total = 0, done = 0, active = 0, found = false;
+  const stages = Array.isArray(b.stages) ? b.stages : [];
+  stages.forEach((s, i) => {
+    const items = Array.isArray(s.items) ? s.items : [];
+    total += items.length;
+    const d = items.filter(x => x && x.done).length;
+    done += d;
+    if (!found && d < items.length) { active = i; found = true; }
+  });
+  if (!found) active = Math.max(0, stages.length - 1);
+  return { total, done, pct: total ? Math.round(done / total * 100) : 0, active, defeated: total > 0 && done >= total };
+}
+function stageDone(s) { const it = Array.isArray(s.items) ? s.items : []; return it.length > 0 && it.every(x => x && x.done); }
+function bossBonusXP() {
+  let xp = 0;
+  for (const b of bossesList()) {
+    for (const s of (b.stages || [])) if (stageDone(s)) xp += 40;
+    if (bossProg(b).defeated) xp += 150;
+  }
+  return xp;
+}
+
+function bossCardHTML(b) {
+  const p = bossProg(b);
+  return '<button type="button" class="bosscard' + (p.defeated ? ' won' : '') + '" id="bc-' + esc(b.id) + '" data-act="boss-open" data-id="' + esc(b.id) + '">' +
+    '<span class="bc-ic">' + esc(b.icon || '🎯') + '</span>' +
+    '<span class="bc-b"><span class="bc-n">' + esc(b.name) + '</span>' +
+      '<span class="bc-s">' + (p.defeated ? '¡Derrotado!' : 'Etapa ' + (p.active + 1) + ' de ' + (b.stages ? b.stages.length : 0)) + ' · ' + p.done + '/' + p.total + '</span>' +
+      '<span class="bc-bar"><i style="width:' + p.pct + '%"></i></span></span>' +
+    (p.defeated ? '<span class="bc-win">🏆</span>' : '') + '</button>';
+}
 function bossSectionHTML() {
   const list = bossesList(), dis = S.readonly || !S.loaded.bosses ? ' disabled' : '';
   let html = '<section class="card" id="card-boss"><div class="card-h"><h2>Jefes finales</h2><span class="meta">' + list.length + '</span></div>';
@@ -296,30 +352,4 @@ function rankingCardHTML() {
     '<button type="button" role="tab" data-act="soc-view" data-v="global" aria-selected="' + (v === 'global') + '">Global</button></div>' +
     (v === 'friends' ? socRows(S.social.fboard, false) : socRows(S.social.gboard, true)) +
     '<p class="hint">Se comparte solo tu alias, nivel, racha y logros. Nunca tu comida, peso, medicamentos ni exámenes.</p></section>';
-}
-function socialCardHTML() {
-  socialMaybeInit();
-  const dis = S.social.busy ? ' disabled' : '';
-  let inner;
-  if (!S.social.ready) {
-    inner = '<p class="prose">El ranking todavía no está disponible. Si ya corriste el SQL en Supabase, espera un momento y reintenta.</p>' +
-      '<button type="button" class="btn sm quiet" data-act="soc-retry">Reintentar</button>';
-    return '<section class="card" id="card-social"><div class="card-h"><h2>Amigos y ranking</h2></div>' + inner + '</section>';
-  }
-  if (!S.social.has) {
-    inner = '<p class="prose">Compite con tus amigos y en el mundo. Se comparte <b>solo</b> tu alias, nivel, racha y logros — nunca tu salud.</p>' +
-      '<div class="field"><label class="lbl" for="soc-name">Tu alias</label><input type="text" id="soc-name" data-draft maxlength="20" autocomplete="off" placeholder="Ej: felipe_fit" value="' + esc(draft('soc-name', '')) + '"></div>' +
-      '<label class="consent sm"><input type="checkbox" id="soc-public" checked><span>Aparecer también en el ranking global (puedes apagarlo luego).</span></label>' +
-      (S.social.err ? '<p class="form-err">' + esc(S.social.err) + '</p>' : '') +
-      '<button type="button" class="btn" id="soc-go" data-act="soc-setup"' + dis + '>' + (S.social.busy ? 'Activando…' : 'Activar ranking') + '</button>';
-  } else {
-    const p = S.social.profile;
-    inner = '<div class="soc-me"><span class="soc-u">@' + esc(p.username) + '</span></div>' +
-      '<div class="soc-code"><span class="soc-code-l">Tu código para que te agreguen</span><div class="soc-code-v"><code id="soc-mycode">' + esc(p.code || '······') + '</code><button type="button" class="btn sm quiet" data-act="soc-copy">Copiar</button></div></div>' +
-      '<button type="button" class="switch' + (p.is_public !== false ? ' on' : '') + '" data-act="soc-public" aria-pressed="' + (p.is_public !== false) + '"><span class="sw"></span>' + (p.is_public !== false ? 'En el ranking global' : 'Solo con amigos') + '</button>' +
-      '<div class="field soc-add"><label class="lbl" for="soc-code">Agregar amigo por código</label><div class="amt-row"><input type="text" id="soc-code" data-draft maxlength="6" autocomplete="off" placeholder="ABC123" value="' + esc(draft('soc-code', '')) + '"><button type="button" class="btn sm" data-act="soc-add"' + dis + '>Agregar</button></div></div>' +
-      (S.social.err ? '<p class="form-err">' + esc(S.social.err) + '</p>' : '') +
-      '<p class="hint">El ranking está en la pestaña Progreso. Se comparte solo tu alias, nivel, racha y logros.</p>';
-  }
-  return '<section class="card" id="card-social"><div class="card-h"><h2>Amigos y ranking</h2></div>' + inner + '</section>';
 }
