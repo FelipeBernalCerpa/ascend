@@ -1,4 +1,19 @@
 'use strict';
+function rankingCardHTML() {
+  socialMaybeInit();
+  if (!S.social.has) {
+    return '<section class="card" id="card-rank"><div class="card-h"><h2>Ranking</h2></div>' +
+      (S.social.ready ? '<p class="empty">Activa el ranking en <b>Ajustes → Amigos y ranking</b> para competir con tus amigos y en el mundo.</p>'
+        : '<p class="empty">El ranking todavía no está disponible.</p><button type="button" class="btn sm quiet" data-act="soc-retry">Reintentar</button>') + '</section>';
+  }
+  const v = S.social.view;
+  if ((v === 'friends' && !S.social.fboard) || (v === 'global' && !S.social.gboard)) socialLoadBoards();
+  return '<section class="card" id="card-rank"><div class="card-h"><h2>Ranking</h2><span class="meta">esta semana</span></div>' +
+    '<div class="segc" role="tablist"><button type="button" role="tab" data-act="soc-view" data-v="friends" aria-selected="' + (v === 'friends') + '">Amigos</button>' +
+    '<button type="button" role="tab" data-act="soc-view" data-v="global" aria-selected="' + (v === 'global') + '">Global</button></div>' +
+    (v === 'friends' ? socRows(S.social.fboard, false) : socRows(S.social.gboard, true)) +
+    '<p class="hint">Se comparte solo tu alias, nivel, racha y logros. Nunca tu comida, peso, medicamentos ni exámenes.</p></section>';
+}
 function socialCardHTML() {
   socialMaybeInit();
   const dis = S.social.busy ? ' disabled' : '';
@@ -272,25 +287,4 @@ function renderClub() {
     (S.club.err ? '<p class="form-err">' + esc(S.club.err) + '</p>' : '') +
     '<p class="hint">En un clan se ve el alias, nivel, racha y XP de cada miembro. Nunca su comida, peso, medicamentos ni exámenes.</p></section>';
   swap(root, html);
-}
-
-function v11Click(act, el, id) {
-  switch (act) {
-    case 'club-create': clubCreate(); return true;
-    case 'club-join': clubJoin(); return true;
-    case 'club-open': S.club.open = S.club.open === el.dataset.id ? null : el.dataset.id; S.club.editing = null; if (S.club.open) clubLoadBoard(S.club.open); renderClub(); return true;
-    case 'club-leave': confirmOrDo('club:' + el.dataset.id, () => clubLeave(el.dataset.id), renderClub); return true;
-    case 'club-edit': S.club.editing = el.dataset.id; renderClub(); return true;
-    case 'club-editx': S.club.editing = null; renderClub(); return true;
-    case 'club-save': clubSaveEdit(el.dataset.id); return true;
-    case 'club-admin': clubSetAdmin(el.dataset.id, el.dataset.u, el.dataset.on === '1'); return true;
-    case 'club-kick': confirmOrDo('kick:' + el.dataset.u, () => clubRemove(el.dataset.id, el.dataset.u), renderClub); return true;
-    case 'club-copy': {
-      const c = el.dataset.code || '';
-      if (c && navigator.clipboard) navigator.clipboard.writeText(c).then(() => toast('Código copiado.'), () => {});
-      else toast('El código es ' + c);
-      return true;
-    }
-  }
-  return false;
 }

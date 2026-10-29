@@ -15,12 +15,12 @@ function quoteHTML() {
 /* ---------- v7: jefes finales editables ----------
    Una meta grande dividida en etapas; cada etapa tiene hábitos que marcas. Al terminar todo, derrotas al jefe y ganas XP. */
 S.bosses = null; S.loaded.bosses = false;
-const MAX_BOSSES = 12, MAX_STAGES = 8, MAX_BITEMS = 12;
+const MAX_BOSSES = 15, MAX_STAGES = 8, MAX_BITEMS = 12, BOSS_CAP = 60;
 const BOSS_ICONS = ['🧥', '🏃', '💪', '🏆', '🎯', '📚', '🧠', '🥇', '⛰️', '🔥', '💰', '🎸', '🩺', '🌱'];
 
 function bossesList() { return (S.bosses && Array.isArray(S.bosses.items) ? S.bosses.items : []).filter(b => b && b.id && b.name); }
 function saveBosses(items) {
-  S.bosses = { items: items.slice(0, MAX_BOSSES) };
+  S.bosses = { items: items.slice(0, BOSS_CAP) };
   saver.queue('config/bosses', clone(S.bosses), 200);
 }
 function bossProg(b) {
@@ -57,12 +57,19 @@ function bossCardHTML(b) {
 }
 function bossSectionHTML() {
   const list = bossesList(), dis = S.readonly || !S.loaded.bosses ? ' disabled' : '';
-  let html = '<section class="card" id="card-boss"><div class="card-h"><h2>Jefes finales</h2><span class="meta">' + list.length + '</span></div>';
+  const active = list.filter(b => !bossProg(b).defeated);
+  const won = list.filter(b => bossProg(b).defeated);
+  let html = '<section class="card" id="card-boss"><div class="card-h"><h2>Jefes finales</h2><span class="meta">' + active.length + ' en progreso</span></div>';
   if (!S.loaded.bosses) html += '<p class="empty">Cargando…</p>';
   else if (!list.length) html += '<p class="empty">Un jefe final es una meta grande por etapas. Elige algo que quieras lograr y conviértelo en tu próximo reto.</p>';
-  else html += '<div class="bosses">' + list.map(bossCardHTML).join('') + '</div>';
+  else {
+    html += '<p class="sh-sec">En progreso</p>';
+    html += active.length ? '<div class="bosses">' + active.map(bossCardHTML).join('') + '</div>'
+      : '<p class="empty">No tienes jefes en progreso. Crea uno nuevo abajo.</p>';
+    if (won.length) html += '<p class="sh-sec">Derrotados <small>' + won.length + '</small></p><div class="bosses">' + won.map(bossCardHTML).join('') + '</div>';
+  }
   html += '<button type="button" class="btn add-top" id="boss-new" data-act="boss-new"' + dis + '>Nuevo jefe final</button>' +
-    '<p class="hint">Cada hábito que marcas le quita vida al jefe. Al vaciar su barra, lo derrotas y ganas XP.</p></section>';
+    '<p class="hint">Cada hábito que marcas le quita vida al jefe. Al vaciar su barra, lo derrotas y pasa a «Derrotados». Puedes tener hasta ' + MAX_BOSSES + ' jefes en progreso; los derrotados quedan guardados aparte.</p></section>';
   return html;
 }
 
@@ -142,7 +149,7 @@ function bossSave() {
   let err = '';
   const stages = f.stages.map((s, i) => ({ id: 's' + uid(), name: String(s.name || '').trim().slice(0, 40), items: s.items.map(it => ({ id: 'i' + uid(), t: String(it.t || '').trim().slice(0, 60), done: false })).filter(it => it.t) })).filter(s => s.items.length);
   if (!name) err = 'Escribe la meta del jefe.';
-  else if (!st.id && list.length >= MAX_BOSSES) err = 'Puedes tener hasta ' + MAX_BOSSES + ' jefes.';
+  else if (!st.id && list.filter(x => !bossProg(x).defeated).length >= MAX_BOSSES) err = 'Puedes tener hasta ' + MAX_BOSSES + ' jefes en progreso. Termina o borra alguno.';
   else if (!stages.length) err = 'Agrega al menos una etapa con un hábito.';
   if (err) { sheetErr(st, err); return; }
   const prev = st.id ? list.find(x => x.id === st.id) : null;
@@ -337,19 +344,4 @@ function socRows(list, global) {
       '<span class="lb-name">' + esc(r.username) + (r.me ? ' <small>(tú)</small>' : '') + '</span>' +
       '<span class="lb-xp">' + fmtInt(r.week_xp || 0) + ' XP</span></div>';
   }).join('') + '</div>';
-}
-function rankingCardHTML() {
-  socialMaybeInit();
-  if (!S.social.has) {
-    return '<section class="card" id="card-rank"><div class="card-h"><h2>Ranking</h2></div>' +
-      (S.social.ready ? '<p class="empty">Activa el ranking en <b>Ajustes → Amigos y ranking</b> para competir con tus amigos y en el mundo.</p>'
-        : '<p class="empty">El ranking todavía no está disponible.</p><button type="button" class="btn sm quiet" data-act="soc-retry">Reintentar</button>') + '</section>';
-  }
-  const v = S.social.view;
-  if ((v === 'friends' && !S.social.fboard) || (v === 'global' && !S.social.gboard)) socialLoadBoards();
-  return '<section class="card" id="card-rank"><div class="card-h"><h2>Ranking</h2><span class="meta">esta semana</span></div>' +
-    '<div class="segc" role="tablist"><button type="button" role="tab" data-act="soc-view" data-v="friends" aria-selected="' + (v === 'friends') + '">Amigos</button>' +
-    '<button type="button" role="tab" data-act="soc-view" data-v="global" aria-selected="' + (v === 'global') + '">Global</button></div>' +
-    (v === 'friends' ? socRows(S.social.fboard, false) : socRows(S.social.gboard, true)) +
-    '<p class="hint">Se comparte solo tu alias, nivel, racha y logros. Nunca tu comida, peso, medicamentos ni exámenes.</p></section>';
 }

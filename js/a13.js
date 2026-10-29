@@ -1,4 +1,34 @@
 'use strict';
+function qHTML(q) {
+  const tag = 'q:' + q.id, armed = S.confirmDel === tag;
+  return '<div class="q' + (q.done ? ' done' : '') + '">' +
+    '<button type="button" class="qchk" id="qc-' + q.id + '" data-act="q-toggle" data-id="' + esc(q.id) + '" aria-pressed="' + !!q.done + '" aria-label="' + (q.done ? 'Marcar como pendiente' : 'Marcar como resuelta') + '"' + ro() + '></button>' +
+    '<div class="q-main"><p class="q-text">' + esc(q.text) + '</p>' +
+      (q.done ? '<label class="lbl sr" for="qa-' + q.id + '">Respuesta</label><textarea id="qa-' + q.id + '" data-q-ans="' + esc(q.id) + '" rows="2" placeholder="Qué te respondieron"' + roText() + '>' + esc(q.answer || '') + '</textarea>' : '') +
+    '</div>' +
+    '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="qd-' + q.id + '" data-act="q-del" data-id="' + esc(q.id) + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
+}
+function questionsHTML() {
+  let body;
+  if (!S.loaded.questions) body = '<p class="empty">Cargando tus preguntas…</p>';
+  else if (!S.questions.length) body = '<p class="empty">Aún no hay preguntas. Escribe la primera abajo.</p>';
+  else {
+    body = DOCTORS.map(d => {
+      const qs = S.questions.filter(q => (q.doctor || 'otro') === d.k).sort((a, b) => ((!!a.done) - (!!b.done)) || byCreated(a, b));
+      if (!qs.length) return '';
+      const pend = qs.filter(q => !q.done).length;
+      return '<div class="qgroup"><h3 class="qg-t">' + d.label + '<span>' + (pend ? pend + (pend === 1 ? ' pendiente' : ' pendientes') : 'Todo resuelto') + '</span></h3>' + qs.map(qHTML).join('') + '</div>';
+    }).join('');
+  }
+  const qd = draft('q-doc', 'general');
+  return '<section class="card" id="card-q"><div class="card-h"><h2>Preguntas para el médico</h2></div>' + body +
+    '<form class="form" data-form="q" novalidate><h3 class="form-t">Nueva pregunta</h3>' +
+      '<div class="field"><label class="lbl" for="q-new">Pregunta</label><textarea id="q-new" data-draft rows="2">' + esc(draft('q-new', '')) + '</textarea></div>' +
+      '<div class="field"><label class="lbl" for="q-doc">Para</label><select id="q-doc" data-draft>' + DOCTORS.map(d => '<option value="' + d.k + '"' + (d.k === qd ? ' selected' : '') + '>' + d.label + '</option>').join('') + '</select></div>' +
+      '<p class="form-err">' + esc(S.formErr.q || '') + '</p>' +
+      '<button type="submit" class="btn" id="q-save"' + ro() + '>Agregar pregunta</button>' +
+    '</form></section>';
+}
 function summaryHTML() {
   return '<section class="card" id="card-sum"><div class="card-h"><h2>Resumen para la cita</h2></div>' +
     '<p class="prose">Junta los últimos 30 días, tus mediciones, exámenes, medicamentos y preguntas pendientes en un texto para mostrar o copiar.</p>' +
@@ -283,61 +313,4 @@ function submitComp(form) {
   delete S.drafts['comp-muscle'];
   renderProgreso();
   putDoc('measures/' + id, data);
-}
-function saveShop() { saver.queue('config/shopping', { checked: clone(S.shopping), custom: clone(S.shopCustom || []) }); }
-function submitShop(form) {
-  const label = ((($('#shop-new', form) || {}).value) || '').trim().slice(0, 80);
-  S.formErr.shop = label ? '' : 'Escribe el producto.';
-  if (!label || !S.loaded.shopping) { renderGuia(); return; }
-  S.shopCustom = (S.shopCustom || []).concat({ k: 'c-' + uid(), label });
-  delete S.drafts['shop-new'];
-  saveShop();
-  renderGuia();
-  const f = document.getElementById('shop-new');
-  if (f) { try { f.focus({ preventScroll: true }); } catch (e) {} }
-}
-function submitMeasure(kind, form) {
-  const field = kind;
-  const date = ($('#' + kind + '-date', form) || {}).value || '';
-  const n = parseNum(($('#' + kind + '-val', form) || {}).value);
-  const lim = field === 'weight' ? [20, 200] : [100, 230];
-  let err = '';
-  if (!date || date > todayKey()) err = 'Elige una fecha válida.';
-  else if (!isFinite(n) || n < lim[0] || n > lim[1]) err = field === 'weight' ? 'Escribe el peso en kilos, entre 20 y 200.' : 'Escribe la estatura en centímetros, entre 100 y 230.';
-  S.formErr[kind] = err;
-  if (err || !S.loaded.measures) { renderProgreso(); return; }
-  const data = { date, createdAt: Date.now() };
-  data[field] = Math.round(n * 10) / 10;
-  const id = store.newId('measures');
-  S.measures.push(Object.assign({ id }, data));
-  S.measures.sort(byDate);
-  delete S.drafts[kind + '-val'];
-  renderProgreso();
-  putDoc('measures/' + id, data);
-}
-function submitLab(form) {
-  const v = id => (($('#' + id, form) || {}).value || '');
-  const type = v('lab-type') || 'otro';
-  const date = v('lab-date');
-  const val = parseNum(v('lab-value'));
-  const unit = v('lab-unit').trim();
-  const low = parseNum(v('lab-low')), high = parseNum(v('lab-high'));
-  const note = v('lab-note').trim();
-  const name = type === 'otro' ? v('lab-name').trim() : LAB_BY[type].name;
-  let err = '';
-  if (!date || date > todayKey()) err = 'Elige una fecha válida.';
-  else if (!isFinite(val)) err = 'Escribe el resultado en número.';
-  else if (type === 'otro' && !name) err = 'Escribe el nombre del examen.';
-  else if ((v('lab-low').trim() && !isFinite(low)) || (v('lab-high').trim() && !isFinite(high))) err = 'La referencia debe ser un número.';
-  S.formErr.lab = err;
-  if (err || !S.loaded.labs) { renderSalud(); return; }
-  const data = { key: type, name, date, value: val, unit, low: isFinite(low) ? low : null, high: isFinite(high) ? high : null, note, createdAt: Date.now() };
-  const id = store.newId('labs');
-  S.labs.push(Object.assign({ id }, data));
-  S.labs.sort(byDate);
-  delete S.drafts['lab-value'];
-  delete S.drafts['lab-note'];
-  S.openLab = labGroupKey(data);
-  renderSalud();
-  putDoc('labs/' + id, data);
 }

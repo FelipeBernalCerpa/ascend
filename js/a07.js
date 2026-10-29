@@ -78,6 +78,18 @@ FOODS.push(
   FD('jugo_tomate_arbol', 'Jugo de tomate de árbol natural', 6, [45, 0.6, 10, 8, 0.6, 0.1, 0, 3], [['vaso', 250]], 'la', 'jugo tomate de arbol natural'),
   FD('jugo_papaya', 'Jugo de papaya natural', 6, [45, 0.4, 11, 9, 0.6, 0.1, 0, 4], [['vaso', 250]], 'la', 'jugo papaya natural')
 );
+FOODS.push(
+  // Panadería y repostería (cat 10)
+  FD('pan_corazon_choc', 'Corazón con chocolate', 10, [400, 6, 52, 22, 1.5, 18, 8, 290], [['unidad', 60]], 'a', 'corazon chocolate pan dulce pastel'),
+  FD('pan_corazon', 'Corazón sin chocolate (glaseado)', 10, [390, 6, 54, 24, 1.3, 16, 7, 280], [['unidad', 60]], 'a', 'corazon glaseado pan dulce pastel'),
+  FD('pan_palitoqueso', 'Palito de queso', 10, [380, 10, 38, 1, 1.2, 21, 10, 520], [['unidad', 40]], 'a', 'palito palitos de queso hojaldre'),
+  FD('pan_roscon_areq', 'Roscón con arequipe', 10, [330, 6, 52, 20, 1.5, 11, 5, 300], [['unidad', 90]], 'a', 'roscon arequipe pan dulce'),
+  FD('pan_liberal', 'Liberal (arequipe y coco)', 10, [430, 5, 58, 30, 2, 20, 11, 180], [['unidad', 50]], 'a', 'liberal galleta arequipe coco'),
+  FD('pan_garullas', 'Garullas (maíz y cuajada)', 10, [300, 9, 34, 2, 1.5, 14, 7, 430], [['unidad', 45]], 'a', 'garullas garulla maiz cuajada'),
+  FD('pan_achira', 'Achiras / bizcocho de achira', 10, [400, 6, 55, 2, 1, 17, 9, 350], [['porción (5)', 60], ['unidad', 12]], 'a', 'achira achiras bizcocho rosquilla'),
+  FD('pan_cacho', 'Cacho relleno de arequipe', 10, [400, 7, 45, 18, 1.5, 21, 11, 330], [['unidad', 70]], 'a', 'cacho cuernito relleno arequipe hojaldre'),
+  FD('pan_rollocanela', 'Rollo de canela', 10, [360, 6, 52, 26, 1.5, 14, 6, 300], [['unidad', 90]], 'a', 'rollo de canela cinnamon roll')
+);
 const FOOD_BY = Object.fromEntries(FOODS.map(f => [f.id, f]));
 const EX_BY = Object.fromEntries(EXERCISES.map(x => [x.k, x]));
 const LEGACY_MEALS = Object.fromEntries(MEALS.map(m => [m.k, m.label]));
@@ -302,37 +314,4 @@ function feHTML(e) {
   return '<div class="fe"><button type="button" class="fe-main" id="fe-' + esc(e.id) + '" data-act="fe-edit" data-id="' + esc(e.id) + '"' + ro() + '>' +
     '<span class="fe-n">' + esc(e.name || 'Alimento') + '</span><span class="fe-s">' + esc(qtyText(e.amt, e.u, e.g, e.l)) + ' · ' + fmtInt(n.kcal) + ' kcal · proteína ' + fmtNut('p', n.p) + ' g</span></button>' +
     '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="fx-' + esc(e.id) + '" data-act="fe-del" data-id="' + esc(e.id) + '"' + ro() + '>' + (armed ? '¿Quitar?' : 'Quitar') + '</button></div>';
-}
-function foodHTML(c) {
-  const nu = dayNutri(c.day);
-  const head = '<div class="card-h"><h2>Comida</h2><span class="meta">' + (nu.count ? fmtInt(nu.kcal) + ' kcal' : 'Sin registros') + '</span></div>';
-  if (!S.daysLoaded) return '<section id="card-food" class="card">' + head + '<p class="empty">Cargando…</p></section>';
-  const dis = S.readonly ? ' disabled' : '';
-  const list = Array.isArray(c.day.food) ? c.day.food : [];
-  const y = S.days[addDays(c.k, -1)];
-  const yl = y && Array.isArray(y.food) ? y.food : [];
-  const known = new Set(FOOD_MEALS.map(m => m.k));
-  const groups = FOOD_MEALS.map(m => ({ k: m.k, label: m.label, items: list.filter(e => e.m === m.k) }));
-  const other = list.filter(e => !known.has(e.m));
-  if (other.length) groups.push({ k: '_otros', label: 'Otros', items: other });
-  const meals = groups.map(g => {
-    const kc = g.items.reduce((s, e) => s + (Number(e.n && e.n.kcal) || 0), 0);
-    const real = g.k !== '_otros';
-    const canRep = real && !g.items.length && yl.some(e => e.m === g.k);
-    const canSave = real && g.items.length >= 2;
-    return '<div class="fmeal"><div class="fmeal-h"><span class="fmeal-n">' + esc(g.label) + '</span>' +
-      (g.items.length ? '<span class="fmeal-k">' + fmtInt(kc) + ' kcal</span>' : '') +
-      (real ? '<button type="button" class="btn sm ghost" id="fa-' + g.k + '" data-act="food-add" data-meal="' + g.k + '"' + dis + '>Agregar</button>' : '') + '</div>' +
-      g.items.map(feHTML).join('') +
-      (canRep || canSave ? '<div class="fmeal-x">' +
-        (canRep ? '<button type="button" class="link inline" id="fr-' + g.k + '" data-act="food-repeat" data-meal="' + g.k + '"' + dis + '>Repetir lo de ayer</button>' : '') +
-        (canSave ? '<button type="button" class="link inline" id="fs-' + g.k + '" data-act="rec-new" data-meal="' + g.k + '"' + dis + '>Guardar como comida frecuente</button>' : '') +
-      '</div>' : '') +
-    '</div>';
-  }).join('');
-  const lm = c.day.meals && typeof c.day.meals === 'object' ? Object.keys(c.day.meals).filter(k => String(c.day.meals[k] || '').trim()) : [];
-  const legacy = lm.length ? '<details class="hist"><summary>Notas de comidas (' + lm.length + ')</summary>' +
-    lm.map(k => '<p class="prose"><strong>' + esc(LEGACY_MEALS[k] || k) + ':</strong> ' + esc(c.day.meals[k]) + '</p>').join('') + '</details>' : '';
-  return '<section id="card-food" class="card">' + head + nutriGridHTML(nu) + '<div class="fmeals">' + meals + '</div>' + legacy +
-    '<p class="hint">Toca un alimento para cambiar la cantidad. Los valores son aproximados; en carnes, pescados y verduras no incluyen la sal que se agrega al cocinar (agrégala como «Sal»).</p></section>';
 }

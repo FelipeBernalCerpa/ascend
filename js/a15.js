@@ -1,4 +1,29 @@
 'use strict';
+function bindAuth() {
+  const pv = $('#auth-privacy');
+  if (pv) pv.innerHTML = '<summary>Privacidad y uso de tus datos</summary>' + privacyInner();
+  $('#auth-form').addEventListener('submit', onAuthSubmit);
+  for (const b of $$('#auth-tabs button')) b.addEventListener('click', () => setAuthMode(b.dataset.mode));
+  $('#auth-forgot').addEventListener('click', () => setAuthMode(authMode === 'reset' ? 'in' : 'reset'));
+}
+async function logout() {
+  saver.flushAll();
+  for (let i = 0; i < 25 && (saver.pend.size || saver.busy.size); i++) await wait(150);
+  try { await sb.auth.signOut(); } catch (e) {}
+  location.reload();
+}
+function exportData() {
+  const payload = { app: 'Ascend', version: 1, exportedAt: new Date().toISOString(), docs: store.docs };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'ascend-datos-' + todayKey() + '.json';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+}
+const IMPORT_COLS = ['config', 'days', 'measures', 'labs', 'questions', 'foods', 'recipes'];
 async function importData(input) {
   const file = input.files && input.files[0];
   input.value = '';

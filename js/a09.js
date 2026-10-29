@@ -1,4 +1,42 @@
 'use strict';
+function gramsOf(st) {
+  const f = st.food;
+  const a = typeof st.amt === 'number' ? st.amt : parseNum(st.amt);
+  if (!f || !isFinite(a)) return 0;
+  if (st.unit === 'g') return a;
+  const u = f.units[st.unit];
+  return u ? a * u.g : 0;
+}
+function prevHTML(f, g) {
+  const n = nutriFor(f.v, g);
+  return '<div class="prev"><p class="sh-sec">Para ' + fmtInt(g) + ' ' + unitOf(f.liquid) + '</p><div class="prev-g">' +
+    NUTRIENTS.map(x => '<span class="pv"><span>' + x.label + '</span><b>' + fmtNut(x.k, n[x.k]) + ' ' + x.unit + '</b></span>').join('') + '</div></div>';
+}
+function shQtyHTML(st) {
+  const f = st.food, lu = unitOf(f.liquid);
+  const miss = (f.missing || []).map(k => (NUTRIENTS.find(n => n.k === k) || {}).label).filter(Boolean);
+  const unitBtns = f.units.map((u, i) => '<button type="button" class="tgl" id="sh-u-' + i + '" data-act="sh-unit" data-v="' + i + '" aria-pressed="' + (st.unit === i) + '">' + esc(u.u) + '<small>' + fmtNum(u.g, 1) + ' ' + lu + '</small></button>').join('') +
+    '<button type="button" class="tgl" id="sh-u-g" data-act="sh-unit" data-v="g" aria-pressed="' + (st.unit === 'g') + '">' + (f.liquid ? 'Mililitros' : 'Gramos') + '<small>' + lu + '</small></button>';
+  const quick = st.unit === 'g' ? [50, 100, 150, 200] : [0.5, 1, 1.5, 2];
+  const ql = v => (v === 0.5 ? '½' : v === 1.5 ? '1½' : String(v));
+  const cur = typeof st.amt === 'number' ? st.amt : parseNum(st.amt);
+  const items = f.src === 'rec' && f.items ? '<p class="hint">Incluye: ' + f.items.map(it => esc(it.name) + ' (' + fmtInt(it.g) + ' ' + unitOf(it.l) + ')').join(', ') + '.</p>' : '';
+  return sheetTop(st.editId ? 'Cambiar cantidad' : 'Cantidad', !st.editId) +
+    '<div><p class="sh-food">' + esc(f.name) + (f.brand ? ' <small>' + esc(f.brand) + '</small>' : '') + '</p>' +
+      '<p class="hint">Por 100 ' + lu + ': ' + fmtInt(f.v[0]) + ' kcal · proteína ' + fmtNut('p', f.v[1]) + ' g · carbohidratos ' + fmtNut('c', f.v[2]) + ' g · grasas ' + fmtNut('f', f.v[5]) + ' g.' +
+      (f.approx ? ' Valores aproximados: cambian según la receta.' : '') + (miss.length ? ' Sin dato de: ' + esc(miss.join(', ').toLowerCase()) + '.' : '') + '</p>' + items + '</div>' +
+    '<form class="sh-form" data-form="sh-qty" novalidate>' +
+      '<div class="field"><span class="lbl">Porción</span><div class="toggles">' + unitBtns + '</div></div>' +
+      '<div class="field"><label class="lbl" for="sh-amt">' + (st.unit === 'g' ? (f.liquid ? 'Mililitros' : 'Gramos') : 'Cuántas porciones') + '</label>' +
+        '<div class="amt-row"><input type="text" inputmode="decimal" id="sh-amt" data-sh="amt" autocomplete="off" value="' + esc(amtText(st.amt)) + '">' +
+        quick.map(v => '<button type="button" class="tgl q" id="sh-q-' + String(v).replace('.', '_') + '" data-act="sh-amt" data-v="' + v + '" aria-pressed="' + (cur === v) + '">' + ql(v) + '</button>').join('') + '</div></div>' +
+      '<div id="sh-prev">' + prevHTML(f, gramsOf(st)) + '</div>' +
+      '<div class="field"><label class="lbl" for="sh-meal">Comida</label><select id="sh-meal" data-sh="meal">' + mealOptions(st.meal) + '</select></div>' +
+      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
+      '<button type="submit" class="btn" id="sh-add"' + (S.readonly ? ' disabled' : '') + '>' + (st.editId ? 'Guardar cambios' : 'Agregar') + '</button>' +
+    '</form>';
+}
+const CF_FIELDS = [['kcal', 'Calorías', 'kcal'], ['p', 'Proteína', 'g'], ['c', 'Carbohidratos', 'g'], ['s', 'Azúcares', 'g'], ['fi', 'Fibra', 'g'], ['f', 'Grasa total', 'g'], ['sf', 'Grasa saturada', 'g'], ['na', 'Sodio', 'mg']];
 function shCustomHTML(st) {
   const cf = st.cf || {}, basis = cf.basis || 'g';
   const bBtn = (k, label) => '<button type="button" class="tgl" id="cf-b-' + k + '" data-act="cf-basis" data-v="' + k + '" aria-pressed="' + (basis === k) + '">' + label + '</button>';
@@ -258,72 +296,3 @@ function saveCustomFood() {
   toast('Alimento creado.');
   toQty(st, myFoodObj(Object.assign({ id }, data)));
 }
-function saveRecipe() {
-  const st = S.sheet;
-  if (!st || S.readonly || !S.loaded.recipes) return;
-  const name = String(st.recname || '').trim();
-  if (!name) { sheetErr(st, 'Escribe un nombre.'); return; }
-  const items = (st.items || []).map(e => ({ name: e.name, src: e.src, ref: e.ref, amt: e.amt, u: e.u, g: e.g, l: e.l ? 1 : 0, n: e.n }));
-  const id = uid();
-  const data = { name: name.slice(0, 60), items, createdAt: Date.now() };
-  S.recipes.push(Object.assign({ id }, data));
-  putDoc('recipes/' + id, data);
-  closeSheet();
-  toast('Guardada: ' + data.name + '. La encuentras en Agregar.');
-}
-function submitEx(custom) {
-  const st = S.sheet;
-  if (!st || S.readonly) return;
-  const min = parseInt(String(st.min || '').replace(/\D/g, ''), 10);
-  let item;
-  if (custom) {
-    const name = String(st.exname || '').trim();
-    const lv = EX_LEVELS.find(l => l.k === (st.level || 'moderada')) || EX_LEVELS[1];
-    const kRaw = String(st.exkcal || '').trim();
-    const kc = kRaw ? parseInt(kRaw.replace(/\D/g, ''), 10) : null;
-    if (!name) { sheetErr(st, 'Escribe el nombre del ejercicio.'); return; }
-    if (!(min > 0 && min <= 600)) { sheetErr(st, 'Escribe los minutos (de 1 a 600).'); return; }
-    if (kRaw && !(kc >= 0 && kc <= 5000)) { sheetErr(st, 'Las calorías deben estar entre 0 y 5000.'); return; }
-    item = { id: uid(), k: 'otro', name: name.slice(0, 60), met: lv.met, min, hi: lv.hi, at: Date.now() };
-    if (kRaw) item.kcal = kc;
-  } else {
-    const x = st.ex;
-    if (!x) return;
-    if (!(min > 0 && min <= 600)) { sheetErr(st, 'Escribe los minutos (de 1 a 600).'); return; }
-    item = { id: uid(), k: x.k, name: x.name, met: x.met, min, hi: x.hi, at: Date.now() };
-  }
-  let full = false;
-  const ok = mutDay(S.viewKey, d => {
-    const l = Array.isArray(d.acts) ? d.acts.slice() : [];
-    if (l.length >= MAX_ACTS) { full = true; return; }
-    l.push(item);
-    d.acts = l;
-  });
-  if (!ok) return;
-  if (full) { sheetErr(st, 'Llegaste al máximo de ejercicios para un día.'); return; }
-  closeSheet();
-  renderHoy(['act', 'meters']);
-  toast('Agregado: ' + item.name + ', ' + min + ' min.');
-}
-function repeatMeal(meal) {
-  const y = S.days[addDays(S.viewKey, -1)];
-  const items = (y && Array.isArray(y.food) ? y.food : []).filter(e => e.m === meal);
-  if (!items.length) return;
-  const now = Date.now();
-  if (mutDay(S.viewKey, d => { d.food = (Array.isArray(d.food) ? d.food : []).concat(items.map(e => Object.assign(clone(e), { id: uid(), at: now }))).slice(0, MAX_FOOD); })) {
-    renderHoy(['food', 'meters', 'act']);
-    toast('Copiado de ayer: ' + items.length + (items.length === 1 ? ' alimento.' : ' alimentos.'));
-  }
-}
-function editEntry(id) {
-  if (S.readonly) return;
-  const e = (getDay(S.viewKey).food || []).find(x => x.id === id);
-  if (!e) return;
-  const f = findFood(e.src, e.ref);
-  if (!f) { toast('Ese alimento ya no está en tu lista. Quítalo y agrégalo de nuevo si quieres cambiarlo.'); return; }
-  let unit = 'g', amt = Number(e.g) || 100;
-  if (e.u && e.u !== 'g') { const i = f.units.findIndex(u => u.u === e.u); if (i >= 0) { unit = i; amt = Number(e.amt) || 1; } }
-  openSheet({ kind: 'food', step: 'qty', food: f, meal: e.m, editId: e.id, unit, amt, err: '' });
-}
-
-/* Open Food Facts: productos empacados y códigos de barras */

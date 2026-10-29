@@ -1,4 +1,80 @@
 'use strict';
+function extChange(t) {
+  if (v4Change(t)) return true;
+  if (t.id === 'sh-meal' && S.sheet) { S.sheet.meal = t.value; return true; }
+  if (t.dataset.prof === 'birth') {
+    if (S.readonly || !S.loaded.profile) return true;
+    const v = t.value;
+    if (v && (v > todayKey() || v < '1900-01-01')) return true;
+    S.profile = Object.assign({}, S.profile);
+    if (v) S.profile.birth = v; else delete S.profile.birth;
+    saveProfile();
+    renderAjustes();
+    return true;
+  }
+  if (t.id === 'steps-in') {
+    if (t.value && Number(getDay(S.viewKey).steps)) t.value = fmtInt(getDay(S.viewKey).steps);
+    return true;
+  }
+  return false;
+}
+function extSubmit(kind) {
+  if (planSubmit(kind) || v4Submit(kind)) return true;
+  const st = S.sheet;
+  switch (kind) {
+    case 'sh-search': {
+      const inp = $('#sh-q');
+      if (inp) { try { inp.blur(); } catch (e) {} }
+      if (st && st.kind === 'food' && String(st.q || '').trim().length >= 2 && !searchFoods(st.q).length) runOffSearch();
+      return true;
+    }
+    case 'sh-qty': submitQty(); return true;
+    case 'sh-custom': saveCustomFood(); return true;
+    case 'sh-code': { const inp = $('#sh-code'); lookupCode(inp ? inp.value : ''); return true; }
+    case 'sh-rec': saveRecipe(); return true;
+    case 'sh-exmin': submitEx(false); return true;
+    case 'sh-excustom': submitEx(true); return true;
+    default: return false;
+  }
+}
+function onKey(e) {
+  if (e.key === 'Escape' && S.sheet) { e.preventDefault(); closeSheet(); }
+}
+
+/* ---------- v6: gamificación (XP, rangos, racha) y medicamentos opcionales ----------
+   El XP se calcula de lo que ya registras (hábitos, agua, sueño, ejercicio, comida): no guarda estado nuevo.
+   Nada de esto premia ni castiga por calorías ni por peso. */
+
+const RANKS = [
+  { k: 'bronce',   name: 'Bronce',   min: 0,     icon: '🥉', color: '#a9713b' },
+  { k: 'plata',    name: 'Plata',    min: 600,   icon: '🥈', color: '#9aa6ad' },
+  { k: 'oro',      name: 'Oro',      min: 1800,  icon: '🥇', color: '#c9a227' },
+  { k: 'platino',  name: 'Platino',  min: 4000,  icon: '🔷', color: '#5fb2c4' },
+  { k: 'diamante', name: 'Diamante', min: 8000,  icon: '💠', color: '#6e8be0' },
+  { k: 'maestro',  name: 'Maestro',  min: 15000, icon: '🔮', color: '#9b5de5' },
+  { k: 'leyenda',  name: 'Leyenda',  min: 28000, icon: '👑', color: '#d9b43a' }
+];
+
+function dayExercise(d) {
+  if (!d) return false;
+  if (d.ex && Array.isArray(d.ex.types) && d.ex.types.some(t => t !== 'descanso')) return true;
+  return Array.isArray(d.acts) && d.acts.length > 0;
+}
+function dayWaterMet(d) { return !!d && sum(d.water) >= (Number(S.settings.waterGoal) || 2000); }
+function gDayXP(k) {
+  const d = S.days[k];
+  if (!d) return 0;
+  let xp = 0;
+  const hs = habDayStats(k);
+  xp += hs.done * 10;
+  if (hs.due > 0 && hs.done >= hs.due) xp += 25;
+  if (dayWaterMet(d)) xp += 8;
+  if (sleepHours(d.sleep) != null) xp += 5;
+  if (dayExercise(d)) xp += 15;
+  const food = Array.isArray(d.food) ? d.food.length : 0;
+  xp += Math.min(food, 5) * 3;
+  return xp;
+}
 function gDayActive(k) {
   const d = S.days[k];
   if (!d) return false;
@@ -283,60 +359,4 @@ function renderHoy(parts) {
   if (!parts || !$('#card-water', root)) { swap(root, quoteHTML() + HOY_ORDER.map(p => HOY[p](c)).join('')); return; }
   for (const p of parts) { const el = document.getElementById('card-' + p); if (el) replaceEl(el, HOY[p](c)); }
   if (parts.indexOf('game') < 0) { const _g = document.getElementById('card-game'); if (_g) replaceEl(_g, gameCardHTML()); }
-}
-
-/* ---------- PROGRESO ---------- */
-const tone = (r, ok, warn) => (r >= ok ? 'ok' : r >= warn ? 'warn' : 'crit');
-function weekHTML() {
-  const tk = todayKey(), keys = [];
-  for (let i = 6; i >= 0; i--) keys.push(addDays(tk, -i));
-  const goal = Number(S.settings.waterGoal) || 2000, sg = Number(S.settings.sleepGoal) || 8.5;
-  const rows = [
-    { k: 'med', label: 'Medicinas', f: (k, d) => {
-      const ds = dosesFor(k);
-      if (!d || !ds.length) return null;
-      const t = ds.filter(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken').length;
-      return { txt: t + '/' + ds.length, t: tone(t / ds.length, 0.9, 0.6), aria: t + ' de ' + ds.length + ' tomas' };
-    } },
-    { k: 'agua', label: 'Agua', f: (k, d) => {
-      const w = d ? sum(d.water) : 0;
-      if (!w) return null;
-      return { txt: fmtNum(w / 1000, 1), t: tone(w / goal, 0.9, 0.6), aria: fmtInt(w) + ' ml' };
-    } },
-    { k: 'ref', label: 'Hábitos', f: (k, d) => {
-      const hs = habDayStats(k);
-      if (!hs.done || !hs.due) return null;
-      return { txt: hs.done + '/' + hs.due, t: tone(hs.done / hs.due, 0.8, 0.5), aria: hs.done + ' de ' + hs.due + ' hábitos' };
-    } },
-    { k: 'sueno', label: 'Sueño', f: (k, d) => {
-      const h = d ? sleepHours(d.sleep) : null;
-      if (h == null) return null;
-      return { txt: fmtNum(h, 1), t: h >= sg ? 'ok' : h >= sg - 1 ? 'warn' : 'crit', aria: fmtNum(h, 1) + ' horas' };
-    } },
-    { k: 'kcal', label: 'Calorías', f: (k, d) => {
-      const nu = dayNutri(d);
-      if (!nu.count) return null;
-      const g = Number((S.settings.nutri || {}).kcal) || 0;
-      return { txt: fmtK(nu.kcal), t: g ? tone(nu.kcal / g, 0.9, 0.7) : 'prog', aria: fmtInt(nu.kcal) + ' kcal' };
-    } },
-    { k: 'pasos', label: 'Pasos', f: (k, d) => {
-      const n = d ? Number(d.steps) || 0 : 0;
-      if (!n) return null;
-      const g = Number(S.settings.stepGoal) || 0;
-      return { txt: fmtK(n), t: g ? tone(n / g, 1, 0.6) : 'prog', aria: fmtInt(n) + ' pasos' };
-    } }
-  ];
-  let html = '<div class="week"><span></span>' + keys.map(k => { const d = parseKey(k); return '<span class="wk-h' + (k === tk ? ' today' : '') + '"><b>' + WD1[d.getDay()] + '</b>' + d.getDate() + '</span>'; }).join('');
-  for (const r of rows) {
-    html += '<span class="wk-lbl">' + r.label + '</span>';
-    for (const k of keys) {
-      const v = r.f(k, S.days[k]);
-      let t = v ? v.t : 'none';
-      if (k === tk && v && t !== 'ok') t = 'prog';
-      html += '<button type="button" class="cell' + (k === tk ? ' today' : '') + '" id="wk-' + r.k + '-' + k + '" data-act="goto-day" data-day="' + k + '" data-t="' + t + '" aria-label="' + esc(r.label + ', ' + fmtDay(k) + ': ' + (v ? v.aria : 'sin registro')) + '">' + (v ? esc(v.txt) : '·') + '</button>';
-    }
-  }
-  html += '</div>';
-  return '<section class="card" id="card-week"><div class="card-h"><h2>Tu semana</h2><span class="meta">Toca un día para abrirlo</span></div>' + html +
-    '<p class="legend"><span class="lg"><i data-t="ok"></i>Cumplido</span><span class="lg"><i data-t="warn"></i>A medias</span><span class="lg"><i data-t="crit"></i>Bajo</span><span class="lg"><i></i>Sin registro</span></p></section>';
 }

@@ -1,4 +1,38 @@
 'use strict';
+function foodHTML(c) {
+  const nu = dayNutri(c.day);
+  const head = '<div class="card-h"><h2>Comida</h2><span class="meta">' + (nu.count ? fmtInt(nu.kcal) + ' kcal' : 'Sin registros') + '</span></div>';
+  if (!S.daysLoaded) return '<section id="card-food" class="card">' + head + '<p class="empty">Cargando…</p></section>';
+  const dis = S.readonly ? ' disabled' : '';
+  const list = Array.isArray(c.day.food) ? c.day.food : [];
+  const y = S.days[addDays(c.k, -1)];
+  const yl = y && Array.isArray(y.food) ? y.food : [];
+  const known = new Set(FOOD_MEALS.map(m => m.k));
+  const groups = FOOD_MEALS.map(m => ({ k: m.k, label: m.label, items: list.filter(e => e.m === m.k) }));
+  const other = list.filter(e => !known.has(e.m));
+  if (other.length) groups.push({ k: '_otros', label: 'Otros', items: other });
+  const meals = groups.map(g => {
+    const kc = g.items.reduce((s, e) => s + (Number(e.n && e.n.kcal) || 0), 0);
+    const real = g.k !== '_otros';
+    const canRep = real && !g.items.length && yl.some(e => e.m === g.k);
+    const canSave = real && g.items.length >= 2;
+    return '<div class="fmeal"><div class="fmeal-h"><span class="fmeal-n">' + esc(g.label) + '</span>' +
+      (g.items.length ? '<span class="fmeal-k">' + fmtInt(kc) + ' kcal</span>' : '') +
+      (real ? '<button type="button" class="btn sm ghost" id="fa-' + g.k + '" data-act="food-add" data-meal="' + g.k + '"' + dis + '>Agregar</button>' : '') + '</div>' +
+      g.items.map(feHTML).join('') +
+      (canRep || canSave ? '<div class="fmeal-x">' +
+        (canRep ? '<button type="button" class="link inline" id="fr-' + g.k + '" data-act="food-repeat" data-meal="' + g.k + '"' + dis + '>Repetir lo de ayer</button>' : '') +
+        (canSave ? '<button type="button" class="link inline" id="fs-' + g.k + '" data-act="rec-new" data-meal="' + g.k + '"' + dis + '>Guardar como comida frecuente</button>' : '') +
+      '</div>' : '') +
+    '</div>';
+  }).join('');
+  const lm = c.day.meals && typeof c.day.meals === 'object' ? Object.keys(c.day.meals).filter(k => String(c.day.meals[k] || '').trim()) : [];
+  const legacy = lm.length ? '<details class="hist"><summary>Notas de comidas (' + lm.length + ')</summary>' +
+    lm.map(k => '<p class="prose"><strong>' + esc(LEGACY_MEALS[k] || k) + ':</strong> ' + esc(c.day.meals[k]) + '</p>').join('') + '</details>' : '';
+  return '<section id="card-food" class="card">' + head + nutriGridHTML(nu) + '<div class="fmeals">' + meals + '</div>' + legacy +
+    '<p class="hint">Toca un alimento para cambiar la cantidad. Los valores son aproximados; en carnes, pescados y verduras no incluyen la sal que se agrega al cocinar (agrégala como «Sal»).</p></section>';
+}
+
 /* ---------- HOY: actividad y energía ---------- */
 function stepsOutHTML(en) {
   if (!en.steps) return 'Copia los pasos que marca tu celular o tu reloj.';
@@ -198,41 +232,3 @@ function shFoodSearchHTML(st) {
     '<div class="row"><button type="button" class="btn sm quiet" id="sh-scan" data-act="sh-scan">Escanear código de barras</button><button type="button" class="btn sm quiet" id="sh-new" data-act="sh-new">Crear alimento</button></div>' +
     '<div id="sh-res">' + foodResultsHTML(st) + '</div>';
 }
-function gramsOf(st) {
-  const f = st.food;
-  const a = typeof st.amt === 'number' ? st.amt : parseNum(st.amt);
-  if (!f || !isFinite(a)) return 0;
-  if (st.unit === 'g') return a;
-  const u = f.units[st.unit];
-  return u ? a * u.g : 0;
-}
-function prevHTML(f, g) {
-  const n = nutriFor(f.v, g);
-  return '<div class="prev"><p class="sh-sec">Para ' + fmtInt(g) + ' ' + unitOf(f.liquid) + '</p><div class="prev-g">' +
-    NUTRIENTS.map(x => '<span class="pv"><span>' + x.label + '</span><b>' + fmtNut(x.k, n[x.k]) + ' ' + x.unit + '</b></span>').join('') + '</div></div>';
-}
-function shQtyHTML(st) {
-  const f = st.food, lu = unitOf(f.liquid);
-  const miss = (f.missing || []).map(k => (NUTRIENTS.find(n => n.k === k) || {}).label).filter(Boolean);
-  const unitBtns = f.units.map((u, i) => '<button type="button" class="tgl" id="sh-u-' + i + '" data-act="sh-unit" data-v="' + i + '" aria-pressed="' + (st.unit === i) + '">' + esc(u.u) + '<small>' + fmtNum(u.g, 1) + ' ' + lu + '</small></button>').join('') +
-    '<button type="button" class="tgl" id="sh-u-g" data-act="sh-unit" data-v="g" aria-pressed="' + (st.unit === 'g') + '">' + (f.liquid ? 'Mililitros' : 'Gramos') + '<small>' + lu + '</small></button>';
-  const quick = st.unit === 'g' ? [50, 100, 150, 200] : [0.5, 1, 1.5, 2];
-  const ql = v => (v === 0.5 ? '½' : v === 1.5 ? '1½' : String(v));
-  const cur = typeof st.amt === 'number' ? st.amt : parseNum(st.amt);
-  const items = f.src === 'rec' && f.items ? '<p class="hint">Incluye: ' + f.items.map(it => esc(it.name) + ' (' + fmtInt(it.g) + ' ' + unitOf(it.l) + ')').join(', ') + '.</p>' : '';
-  return sheetTop(st.editId ? 'Cambiar cantidad' : 'Cantidad', !st.editId) +
-    '<div><p class="sh-food">' + esc(f.name) + (f.brand ? ' <small>' + esc(f.brand) + '</small>' : '') + '</p>' +
-      '<p class="hint">Por 100 ' + lu + ': ' + fmtInt(f.v[0]) + ' kcal · proteína ' + fmtNut('p', f.v[1]) + ' g · carbohidratos ' + fmtNut('c', f.v[2]) + ' g · grasas ' + fmtNut('f', f.v[5]) + ' g.' +
-      (f.approx ? ' Valores aproximados: cambian según la receta.' : '') + (miss.length ? ' Sin dato de: ' + esc(miss.join(', ').toLowerCase()) + '.' : '') + '</p>' + items + '</div>' +
-    '<form class="sh-form" data-form="sh-qty" novalidate>' +
-      '<div class="field"><span class="lbl">Porción</span><div class="toggles">' + unitBtns + '</div></div>' +
-      '<div class="field"><label class="lbl" for="sh-amt">' + (st.unit === 'g' ? (f.liquid ? 'Mililitros' : 'Gramos') : 'Cuántas porciones') + '</label>' +
-        '<div class="amt-row"><input type="text" inputmode="decimal" id="sh-amt" data-sh="amt" autocomplete="off" value="' + esc(amtText(st.amt)) + '">' +
-        quick.map(v => '<button type="button" class="tgl q" id="sh-q-' + String(v).replace('.', '_') + '" data-act="sh-amt" data-v="' + v + '" aria-pressed="' + (cur === v) + '">' + ql(v) + '</button>').join('') + '</div></div>' +
-      '<div id="sh-prev">' + prevHTML(f, gramsOf(st)) + '</div>' +
-      '<div class="field"><label class="lbl" for="sh-meal">Comida</label><select id="sh-meal" data-sh="meal">' + mealOptions(st.meal) + '</select></div>' +
-      '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="sh-add"' + (S.readonly ? ' disabled' : '') + '>' + (st.editId ? 'Guardar cambios' : 'Agregar') + '</button>' +
-    '</form>';
-}
-const CF_FIELDS = [['kcal', 'Calorías', 'kcal'], ['p', 'Proteína', 'g'], ['c', 'Carbohidratos', 'g'], ['s', 'Azúcares', 'g'], ['fi', 'Fibra', 'g'], ['f', 'Grasa total', 'g'], ['sf', 'Grasa saturada', 'g'], ['na', 'Sodio', 'mg']];

@@ -1,4 +1,59 @@
 'use strict';
+/* ---------- PROGRESO ---------- */
+const tone = (r, ok, warn) => (r >= ok ? 'ok' : r >= warn ? 'warn' : 'crit');
+function weekHTML() {
+  const tk = todayKey(), keys = [];
+  for (let i = 6; i >= 0; i--) keys.push(addDays(tk, -i));
+  const goal = Number(S.settings.waterGoal) || 2000, sg = Number(S.settings.sleepGoal) || 8.5;
+  const rows = [
+    { k: 'med', label: 'Medicinas', f: (k, d) => {
+      const ds = dosesFor(k);
+      if (!d || !ds.length) return null;
+      const t = ds.filter(x => d.meds && d.meds[x.key] && d.meds[x.key].s === 'taken').length;
+      return { txt: t + '/' + ds.length, t: tone(t / ds.length, 0.9, 0.6), aria: t + ' de ' + ds.length + ' tomas' };
+    } },
+    { k: 'agua', label: 'Agua', f: (k, d) => {
+      const w = d ? sum(d.water) : 0;
+      if (!w) return null;
+      return { txt: fmtNum(w / 1000, 1), t: tone(w / goal, 0.9, 0.6), aria: fmtInt(w) + ' ml' };
+    } },
+    { k: 'ref', label: 'Hábitos', f: (k, d) => {
+      const hs = habDayStats(k);
+      if (!hs.done || !hs.due) return null;
+      return { txt: hs.done + '/' + hs.due, t: tone(hs.done / hs.due, 0.8, 0.5), aria: hs.done + ' de ' + hs.due + ' hábitos' };
+    } },
+    { k: 'sueno', label: 'Sueño', f: (k, d) => {
+      const h = d ? sleepHours(d.sleep) : null;
+      if (h == null) return null;
+      return { txt: fmtNum(h, 1), t: h >= sg ? 'ok' : h >= sg - 1 ? 'warn' : 'crit', aria: fmtNum(h, 1) + ' horas' };
+    } },
+    { k: 'kcal', label: 'Calorías', f: (k, d) => {
+      const nu = dayNutri(d);
+      if (!nu.count) return null;
+      const g = Number((S.settings.nutri || {}).kcal) || 0;
+      return { txt: fmtK(nu.kcal), t: g ? tone(nu.kcal / g, 0.9, 0.7) : 'prog', aria: fmtInt(nu.kcal) + ' kcal' };
+    } },
+    { k: 'pasos', label: 'Pasos', f: (k, d) => {
+      const n = d ? Number(d.steps) || 0 : 0;
+      if (!n) return null;
+      const g = Number(S.settings.stepGoal) || 0;
+      return { txt: fmtK(n), t: g ? tone(n / g, 1, 0.6) : 'prog', aria: fmtInt(n) + ' pasos' };
+    } }
+  ];
+  let html = '<div class="week"><span></span>' + keys.map(k => { const d = parseKey(k); return '<span class="wk-h' + (k === tk ? ' today' : '') + '"><b>' + WD1[d.getDay()] + '</b>' + d.getDate() + '</span>'; }).join('');
+  for (const r of rows) {
+    html += '<span class="wk-lbl">' + r.label + '</span>';
+    for (const k of keys) {
+      const v = r.f(k, S.days[k]);
+      let t = v ? v.t : 'none';
+      if (k === tk && v && t !== 'ok') t = 'prog';
+      html += '<button type="button" class="cell' + (k === tk ? ' today' : '') + '" id="wk-' + r.k + '-' + k + '" data-act="goto-day" data-day="' + k + '" data-t="' + t + '" aria-label="' + esc(r.label + ', ' + fmtDay(k) + ': ' + (v ? v.aria : 'sin registro')) + '">' + (v ? esc(v.txt) : '·') + '</button>';
+    }
+  }
+  html += '</div>';
+  return '<section class="card" id="card-week"><div class="card-h"><h2>Tu semana</h2><span class="meta">Toca un día para abrirlo</span></div>' + html +
+    '<p class="legend"><span class="lg"><i data-t="ok"></i>Cumplido</span><span class="lg"><i data-t="warn"></i>A medias</span><span class="lg"><i data-t="crit"></i>Bajo</span><span class="lg"><i></i>Sin registro</span></p></section>';
+}
 function measureHTML(kind) {
   const isW = kind === 'weight', field = kind, unit = isW ? 'kg' : 'cm', title = isW ? 'Peso' : 'Estatura';
   const every = isW ? 7 : 28;
@@ -249,34 +304,4 @@ function labFormHTML() {
     '<div class="field"><label class="lbl" for="lab-note">Nota</label><input type="text" id="lab-note" data-draft value="' + esc(draft('lab-note', '')) + '"></div>' +
     '<p class="form-err">' + esc(S.formErr.lab || '') + '</p>' +
     '<button type="submit" class="btn" id="lab-save"' + ro() + '>Guardar resultado</button></form>';
-}
-function qHTML(q) {
-  const tag = 'q:' + q.id, armed = S.confirmDel === tag;
-  return '<div class="q' + (q.done ? ' done' : '') + '">' +
-    '<button type="button" class="qchk" id="qc-' + q.id + '" data-act="q-toggle" data-id="' + esc(q.id) + '" aria-pressed="' + !!q.done + '" aria-label="' + (q.done ? 'Marcar como pendiente' : 'Marcar como resuelta') + '"' + ro() + '></button>' +
-    '<div class="q-main"><p class="q-text">' + esc(q.text) + '</p>' +
-      (q.done ? '<label class="lbl sr" for="qa-' + q.id + '">Respuesta</label><textarea id="qa-' + q.id + '" data-q-ans="' + esc(q.id) + '" rows="2" placeholder="Qué te respondieron"' + roText() + '>' + esc(q.answer || '') + '</textarea>' : '') +
-    '</div>' +
-    '<button type="button" class="xbtn' + (armed ? ' armed' : '') + '" id="qd-' + q.id + '" data-act="q-del" data-id="' + esc(q.id) + '"' + ro() + '>' + (armed ? '¿Eliminar?' : 'Eliminar') + '</button></div>';
-}
-function questionsHTML() {
-  let body;
-  if (!S.loaded.questions) body = '<p class="empty">Cargando tus preguntas…</p>';
-  else if (!S.questions.length) body = '<p class="empty">Aún no hay preguntas. Escribe la primera abajo.</p>';
-  else {
-    body = DOCTORS.map(d => {
-      const qs = S.questions.filter(q => (q.doctor || 'otro') === d.k).sort((a, b) => ((!!a.done) - (!!b.done)) || byCreated(a, b));
-      if (!qs.length) return '';
-      const pend = qs.filter(q => !q.done).length;
-      return '<div class="qgroup"><h3 class="qg-t">' + d.label + '<span>' + (pend ? pend + (pend === 1 ? ' pendiente' : ' pendientes') : 'Todo resuelto') + '</span></h3>' + qs.map(qHTML).join('') + '</div>';
-    }).join('');
-  }
-  const qd = draft('q-doc', 'general');
-  return '<section class="card" id="card-q"><div class="card-h"><h2>Preguntas para el médico</h2></div>' + body +
-    '<form class="form" data-form="q" novalidate><h3 class="form-t">Nueva pregunta</h3>' +
-      '<div class="field"><label class="lbl" for="q-new">Pregunta</label><textarea id="q-new" data-draft rows="2">' + esc(draft('q-new', '')) + '</textarea></div>' +
-      '<div class="field"><label class="lbl" for="q-doc">Para</label><select id="q-doc" data-draft>' + DOCTORS.map(d => '<option value="' + d.k + '"' + (d.k === qd ? ' selected' : '') + '>' + d.label + '</option>').join('') + '</select></div>' +
-      '<p class="form-err">' + esc(S.formErr.q || '') + '</p>' +
-      '<button type="submit" class="btn" id="q-save"' + ro() + '>Agregar pregunta</button>' +
-    '</form></section>';
 }

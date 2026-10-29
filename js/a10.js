@@ -1,4 +1,73 @@
 'use strict';
+function saveRecipe() {
+  const st = S.sheet;
+  if (!st || S.readonly || !S.loaded.recipes) return;
+  const name = String(st.recname || '').trim();
+  if (!name) { sheetErr(st, 'Escribe un nombre.'); return; }
+  const items = (st.items || []).map(e => ({ name: e.name, src: e.src, ref: e.ref, amt: e.amt, u: e.u, g: e.g, l: e.l ? 1 : 0, n: e.n }));
+  const id = uid();
+  const data = { name: name.slice(0, 60), items, createdAt: Date.now() };
+  S.recipes.push(Object.assign({ id }, data));
+  putDoc('recipes/' + id, data);
+  closeSheet();
+  toast('Guardada: ' + data.name + '. La encuentras en Agregar.');
+}
+function submitEx(custom) {
+  const st = S.sheet;
+  if (!st || S.readonly) return;
+  const min = parseInt(String(st.min || '').replace(/\D/g, ''), 10);
+  let item;
+  if (custom) {
+    const name = String(st.exname || '').trim();
+    const lv = EX_LEVELS.find(l => l.k === (st.level || 'moderada')) || EX_LEVELS[1];
+    const kRaw = String(st.exkcal || '').trim();
+    const kc = kRaw ? parseInt(kRaw.replace(/\D/g, ''), 10) : null;
+    if (!name) { sheetErr(st, 'Escribe el nombre del ejercicio.'); return; }
+    if (!(min > 0 && min <= 600)) { sheetErr(st, 'Escribe los minutos (de 1 a 600).'); return; }
+    if (kRaw && !(kc >= 0 && kc <= 5000)) { sheetErr(st, 'Las calorías deben estar entre 0 y 5000.'); return; }
+    item = { id: uid(), k: 'otro', name: name.slice(0, 60), met: lv.met, min, hi: lv.hi, at: Date.now() };
+    if (kRaw) item.kcal = kc;
+  } else {
+    const x = st.ex;
+    if (!x) return;
+    if (!(min > 0 && min <= 600)) { sheetErr(st, 'Escribe los minutos (de 1 a 600).'); return; }
+    item = { id: uid(), k: x.k, name: x.name, met: x.met, min, hi: x.hi, at: Date.now() };
+  }
+  let full = false;
+  const ok = mutDay(S.viewKey, d => {
+    const l = Array.isArray(d.acts) ? d.acts.slice() : [];
+    if (l.length >= MAX_ACTS) { full = true; return; }
+    l.push(item);
+    d.acts = l;
+  });
+  if (!ok) return;
+  if (full) { sheetErr(st, 'Llegaste al máximo de ejercicios para un día.'); return; }
+  closeSheet();
+  renderHoy(['act', 'meters']);
+  toast('Agregado: ' + item.name + ', ' + min + ' min.');
+}
+function repeatMeal(meal) {
+  const y = S.days[addDays(S.viewKey, -1)];
+  const items = (y && Array.isArray(y.food) ? y.food : []).filter(e => e.m === meal);
+  if (!items.length) return;
+  const now = Date.now();
+  if (mutDay(S.viewKey, d => { d.food = (Array.isArray(d.food) ? d.food : []).concat(items.map(e => Object.assign(clone(e), { id: uid(), at: now }))).slice(0, MAX_FOOD); })) {
+    renderHoy(['food', 'meters', 'act']);
+    toast('Copiado de ayer: ' + items.length + (items.length === 1 ? ' alimento.' : ' alimentos.'));
+  }
+}
+function editEntry(id) {
+  if (S.readonly) return;
+  const e = (getDay(S.viewKey).food || []).find(x => x.id === id);
+  if (!e) return;
+  const f = findFood(e.src, e.ref);
+  if (!f) { toast('Ese alimento ya no está en tu lista. Quítalo y agrégalo de nuevo si quieres cambiarlo.'); return; }
+  let unit = 'g', amt = Number(e.g) || 100;
+  if (e.u && e.u !== 'g') { const i = f.units.findIndex(u => u.u === e.u); if (i >= 0) { unit = i; amt = Number(e.amt) || 1; } }
+  openSheet({ kind: 'food', step: 'qty', food: f, meal: e.m, editId: e.id, unit, amt, err: '' });
+}
+
+/* Open Food Facts: productos empacados y códigos de barras */
 async function getJSON(url, ms) {
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   const t = setTimeout(() => { try { if (ctl) ctl.abort(); } catch (e) {} }, ms || 9000);
@@ -345,80 +414,4 @@ function extInput(t) {
     return true;
   }
   return false;
-}
-function extChange(t) {
-  if (v4Change(t)) return true;
-  if (t.id === 'sh-meal' && S.sheet) { S.sheet.meal = t.value; return true; }
-  if (t.dataset.prof === 'birth') {
-    if (S.readonly || !S.loaded.profile) return true;
-    const v = t.value;
-    if (v && (v > todayKey() || v < '1900-01-01')) return true;
-    S.profile = Object.assign({}, S.profile);
-    if (v) S.profile.birth = v; else delete S.profile.birth;
-    saveProfile();
-    renderAjustes();
-    return true;
-  }
-  if (t.id === 'steps-in') {
-    if (t.value && Number(getDay(S.viewKey).steps)) t.value = fmtInt(getDay(S.viewKey).steps);
-    return true;
-  }
-  return false;
-}
-function extSubmit(kind) {
-  if (planSubmit(kind) || v4Submit(kind)) return true;
-  const st = S.sheet;
-  switch (kind) {
-    case 'sh-search': {
-      const inp = $('#sh-q');
-      if (inp) { try { inp.blur(); } catch (e) {} }
-      if (st && st.kind === 'food' && String(st.q || '').trim().length >= 2 && !searchFoods(st.q).length) runOffSearch();
-      return true;
-    }
-    case 'sh-qty': submitQty(); return true;
-    case 'sh-custom': saveCustomFood(); return true;
-    case 'sh-code': { const inp = $('#sh-code'); lookupCode(inp ? inp.value : ''); return true; }
-    case 'sh-rec': saveRecipe(); return true;
-    case 'sh-exmin': submitEx(false); return true;
-    case 'sh-excustom': submitEx(true); return true;
-    default: return false;
-  }
-}
-function onKey(e) {
-  if (e.key === 'Escape' && S.sheet) { e.preventDefault(); closeSheet(); }
-}
-
-/* ---------- v6: gamificación (XP, rangos, racha) y medicamentos opcionales ----------
-   El XP se calcula de lo que ya registras (hábitos, agua, sueño, ejercicio, comida): no guarda estado nuevo.
-   Nada de esto premia ni castiga por calorías ni por peso. */
-
-const RANKS = [
-  { k: 'bronce',   name: 'Bronce',   min: 0,     icon: '🥉', color: '#a9713b' },
-  { k: 'plata',    name: 'Plata',    min: 600,   icon: '🥈', color: '#9aa6ad' },
-  { k: 'oro',      name: 'Oro',      min: 1800,  icon: '🥇', color: '#c9a227' },
-  { k: 'platino',  name: 'Platino',  min: 4000,  icon: '🔷', color: '#5fb2c4' },
-  { k: 'diamante', name: 'Diamante', min: 8000,  icon: '💠', color: '#6e8be0' },
-  { k: 'maestro',  name: 'Maestro',  min: 15000, icon: '🔮', color: '#9b5de5' },
-  { k: 'leyenda',  name: 'Leyenda',  min: 28000, icon: '👑', color: '#d9b43a' }
-];
-
-function dayExercise(d) {
-  if (!d) return false;
-  if (d.ex && Array.isArray(d.ex.types) && d.ex.types.some(t => t !== 'descanso')) return true;
-  return Array.isArray(d.acts) && d.acts.length > 0;
-}
-function dayWaterMet(d) { return !!d && sum(d.water) >= (Number(S.settings.waterGoal) || 2000); }
-function gDayXP(k) {
-  const d = S.days[k];
-  if (!d) return 0;
-  let xp = 0;
-  const hs = habDayStats(k);
-  xp += hs.done * 10;
-  if (hs.due > 0 && hs.done >= hs.due) xp += 25;
-  if (dayWaterMet(d)) xp += 8;
-  if (sleepHours(d.sleep) != null) xp += 5;
-  if (dayExercise(d)) xp += 15;
-  const food = Array.isArray(d.food) ? d.food.length : 0;
-  xp += Math.min(food, 5) * 3;
-  return xp;
 }
