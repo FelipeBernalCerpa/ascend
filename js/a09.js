@@ -234,7 +234,7 @@ function submitQty() {
   if (!isFinite(a) || a <= 0 || !(g > 0)) { sheetErr(st, 'Escribe una cantidad mayor que 0.'); return; }
   if (g > 5000) { sheetErr(st, 'Esa cantidad es muy grande. Revisa el número.'); return; }
   const u = st.unit === 'g' ? 'g' : f.units[st.unit].u;
-  const entry = { id: st.editId || uid(), m: st.meal || 'desayuno', name: String(f.name + (f.brand ? ' · ' + f.brand : '')).slice(0, 120), src: f.src, ref: f.id, amt: r2(a), u, g: r1(g), n: nutriFor(f.v, g), at: Date.now() };
+  const entry = { id: st.editId || uid(), m: st.meal || 'desayuno', name: String(f.name + (f.brand ? ' · ' + f.brand : '')).slice(0, 120), src: f.src, ref: f.id, amt: r2(a), u, g: r1(g), n: nutriFor(f.v, g), k: f.kind || 'comida', gl: f.gluten === true, at: Date.now() };
   if (f.liquid) entry.l = 1;
   let full = false;
   const ok = mutDay(S.viewKey, d => {
@@ -288,7 +288,7 @@ function saveCustomFood() {
   if (pg > 0) units.push({ u: String(cf.pname || '').trim().slice(0, 40) || 'porción', g: r1(pg) });
   const id = cf.id || uid();
   const prev = S.foods.find(x => x.id === id);
-  const data = { name: name.slice(0, 80), brand: String(cf.brand || '').trim().slice(0, 60), v, units, liquid: basis === 'ml', code, src: 'my', createdAt: (prev && prev.createdAt) || Date.now() };
+  const data = { name: name.slice(0, 80), brand: String(cf.brand || '').trim().slice(0, 60), v, units, liquid: basis === 'ml', code, src: 'my', kind: cf.kind || 'comida', gluten: cf.gluten === true, createdAt: (prev && prev.createdAt) || Date.now() };
   const i = S.foods.findIndex(x => x.id === id);
   if (i >= 0) S.foods[i] = Object.assign({ id }, data); else S.foods.push(Object.assign({ id }, data));
   putDoc('foods/' + id, data);

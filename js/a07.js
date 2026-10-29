@@ -158,7 +158,7 @@ function dayHasEx(d) {
 function myFoodObj(x) {
   const v = NK.map((k, i) => Number(Array.isArray(x.v) ? x.v[i] : 0) || 0);
   const units = (Array.isArray(x.units) ? x.units : []).filter(u => u && u.u && Number(u.g) > 0).map(u => ({ u: String(u.u), g: Number(u.g) }));
-  return { src: x.src === 'off' ? 'off' : 'my', id: x.id, name: x.name || 'Alimento', brand: x.brand || '', v, units, liquid: !!x.liquid, approx: false, code: x.code || '', missing: Array.isArray(x.missing) ? x.missing : [] };
+  return { src: x.src === 'off' ? 'off' : 'my', id: x.id, name: x.name || 'Alimento', brand: x.brand || '', v, units, liquid: !!x.liquid, approx: false, code: x.code || '', kind: x.kind || 'comida', gluten: x.gluten === true, missing: Array.isArray(x.missing) ? x.missing : [] };
 }
 function recipeFood(id) {
   const b = BUILTIN_RECIPES.find(x => x.id === id);

@@ -90,12 +90,13 @@ function offBrand(p) {
 function offToFood(p, code) {
   const nm = p && p.nutriments && typeof p.nutriments === 'object' ? p.nutriments : {};
   const num = k => { const v = nm[k]; if (v === '' || v == null) return null; const n = Number(v); return isFinite(n) && n >= 0 ? n : null; };
+  const mgx = k => { const x = num(k); return x == null ? null : x * 1000; };
   let kcal = num('energy-kcal_100g');
   if (kcal == null) { const kj = num('energy-kj_100g') != null ? num('energy-kj_100g') : num('energy_100g'); if (kj != null) kcal = kj / 4.184; }
   if (kcal == null) return null;
   let na = num('sodium_100g');
   if (na == null) { const salt = num('salt_100g'); if (salt != null) na = salt / 2.5; }
-  const raw = [kcal, num('proteins_100g'), num('carbohydrates_100g'), num('sugars_100g'), num('fiber_100g'), num('fat_100g'), num('saturated-fat_100g'), na == null ? null : na * 1000];
+  const raw = [kcal, num('proteins_100g'), num('carbohydrates_100g'), num('sugars_100g'), num('fiber_100g'), num('fat_100g'), num('saturated-fat_100g'), na == null ? null : na * 1000, mgx('calcium_100g'), mgx('zinc_100g'), mgx('iron_100g'), mgx('magnesium_100g'), mgx('phosphorus_100g'), mgx('potassium_100g'), null, null, null, mgx('vitamin-c_100g'), null, num('omega-3-fat_100g')];
   const missing = NK.filter((k, i) => raw[i] == null);
   const v = raw.map((x, i) => (x == null ? 0 : i === 0 || i === 7 ? Math.round(x) : r1(x)));
   const qtyS = String(p.quantity || '');
@@ -346,6 +347,7 @@ function extClick(act, el, id) {
       const f = myFoodObj(x), u = f.units[0];
       const cf = { id: x.id, name: f.name, brand: f.brand, basis: f.liquid ? 'ml' : 'g', pname: u ? u.u : '', pg: u ? numText(u.g) : '', code: f.code };
       CF_FIELDS.forEach((c, i) => { cf[c[0]] = numText(f.v[i]); });
+      cf.kind = f.kind || 'comida'; cf.gluten = f.gluten === true;
       openSheet({ kind: 'food', step: 'custom', ctx: 'ajustes', cf });
       return;
     }

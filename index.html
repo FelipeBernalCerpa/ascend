@@ -196,6 +196,23 @@
 .lb-row{flex-wrap:wrap}
 </style>
 <style id="v12">.med-notif{display:flex;flex-direction:column;gap:5px;margin-top:10px}.med-notif .hint{margin:0}</style>
+<style id="v16">
+/* ---------- v16: micronutrientes, fuente y gluten ---------- */
+.nut-micros, .nut-src, .cf-micros, .goals-micros { margin-top: 10px; }
+.nut-micros > summary, .nut-src > summary, .cf-micros > summary, .goals-micros > summary {
+  cursor: pointer; font-size: 13px; font-weight: 650; color: var(--accent); padding: 6px 0; list-style: none;
+}
+.nut-micros > summary::-webkit-details-marker, .nut-src > summary::-webkit-details-marker { display: none; }
+.nut-micros > summary::before, .nut-src > summary::before, .cf-micros > summary::before, .goals-micros > summary::before { content: '▸ '; }
+.nut-micros[open] > summary::before, .nut-src[open] > summary::before, .cf-micros[open] > summary::before, .goals-micros[open] > summary::before { content: '▾ '; }
+.nut-micros .nutri { margin-top: 6px; }
+.gluten-badge { font-size: 12.5px; color: var(--muted); margin-top: 10px; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); }
+.gluten-badge.has { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+.nut-src .src-row { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; padding: 5px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.nut-src .src-k { font-weight: 650; }
+.nut-src .src-v { color: var(--muted); }
+.fe-kind { font-size: 10.5px; font-weight: 700; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 6px; margin-left: 4px; white-space: nowrap; }
+</style>
 </head>
 <body>
 
