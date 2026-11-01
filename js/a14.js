@@ -360,6 +360,12 @@ function subscribeAll() {
     if (S.tab === 'habitos') renderHabitos();
     else if (S.tab === 'hoy') renderHoy(['game']);
   });
+  store.watchDoc('config/counters', data => {
+    S.loaded.counters = true;
+    if (dirty.has('config/counters')) return;
+    S.counters = data && Array.isArray(data.items) ? data : { items: [] };
+    if (S.tab === 'habitos' && S.hab.tab === 'cont') renderHabitos();
+  });
   store.watchDoc('config/social', data => {
     S.loaded.reto = true;
     if (dirty.has('config/social')) return;

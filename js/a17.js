@@ -138,7 +138,7 @@ S.routines = []; S.loaded.routines = false;
 S.rlists = null; S.loaded.rlists = false;
 S.loaded.aianalysis = false;
 S.ana = { period: 'week', hperiod: 'week', busy: '', err: {}, items: [] };
-S.hab = { tab: ['rem', 'boss'].indexOf(lsGet('ascend-htab')) >= 0 ? lsGet('ascend-htab') : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
+S.hab = { tab: ['rem', 'boss', 'cont'].indexOf(lsGet('ascend-htab')) >= 0 ? lsGet('ascend-htab') : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
 IMPORT_COLS.push('reminders', 'routines');
 const MAX_REMS = 800, MAX_RLISTS = 30, MAX_ROUTINES = 30, MAX_ANA = 15;
 const isKey = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));

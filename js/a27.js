@@ -454,5 +454,115 @@ function nutriGridHTML(nu) {
   return h;
 }
 
+/* ---------- v18: Contadores (racha / veces / horas), ilimitados y editables ---------- */
+S.counters = null;
+if (S.loaded) S.loaded.counters = false;
+S.cont = { editing: null, err: '', addType: 'veces' };
+const CNT_CAP = 500;
+function countersList() { return (S.counters && Array.isArray(S.counters.items) ? S.counters.items : []).filter(c => c && c.id); }
+function saveCounters() { saver.queue('config/counters', clone(S.counters || { items: [] }), 200); }
+function cntFind(id) { return countersList().find(c => c.id === id); }
+function cntLiveStreak(c) { const tk = todayKey(); return (c.last === tk || c.last === addDays(tk, -1)) ? (c.value || 0) : 0; }
+function cntValueText(c) {
+  if (c.type === 'horas') return fmtNum(c.value || 0, 1) + ' h';
+  if (c.type === 'racha') { const s = cntLiveStreak(c); return s + (s === 1 ? ' día' : ' días'); }
+  return fmtInt(c.value || 0) + (Math.abs(c.value || 0) === 1 ? ' vez' : ' veces');
+}
+function cntTargetText(c) {
+  const t = Number(c.target) || 0; if (!(t > 0)) return '';
+  return ' <small>/ ' + (c.type === 'horas' ? fmtNum(t, 0) + ' h' : c.type === 'racha' ? t + ' días' : fmtInt(t) + ' veces') + '</small>';
+}
+function cntMut(id, fn) {
+  if (S.readonly || !S.loaded.counters) return;
+  const c = cntFind(id); if (!c) return;
+  fn(c); saveCounters(); renderHabitos();
+}
+function counterCardHTML(c) {
+  const tk = todayKey(), tgt = Number(c.target) || 0;
+  const cur = c.type === 'racha' ? cntLiveStreak(c) : (c.value || 0);
+  const done = tgt > 0 && cur >= tgt;
+  const bar = tgt > 0 ? '<span class="m-bar"><i style="width:' + Math.round(Math.min(1, cur / tgt) * 100) + '%"></i></span>' : '';
+  if (S.cont.editing === c.id) {
+    return '<section class="card cnt-card"><div class="cnt-edit">' +
+      '<div class="field"><label class="lbl" for="cnt-ename">Nombre</label><input type="text" id="cnt-ename" maxlength="40" value="' + esc(c.name) + '"></div>' +
+      '<div class="field"><label class="lbl" for="cnt-etarget">Meta (opcional)</label><input type="text" inputmode="decimal" id="cnt-etarget" placeholder="Ej: 80" value="' + esc(c.target == null ? '' : c.target) + '"></div>' +
+      '<div class="cnt-ctrl"><button type="button" class="btn sm" data-act="cnt-save" data-id="' + esc(c.id) + '">Guardar</button>' +
+      '<button type="button" class="btn sm quiet" data-act="cnt-editx">Cancelar</button></div></div></section>';
+  }
+  let ctrl = '';
+  const dis = S.readonly ? ' disabled' : '';
+  if (c.type === 'veces') {
+    ctrl = '<div class="cnt-ctrl"><button type="button" class="btn sm quiet" data-act="cnt-dec" data-id="' + esc(c.id) + '"' + dis + '>−1</button>' +
+      '<button type="button" class="btn sm" data-act="cnt-inc" data-id="' + esc(c.id) + '"' + dis + '>+1</button></div>';
+  } else if (c.type === 'horas') {
+    ctrl = '<div class="cnt-ctrl">' + [0.5, 1, 2].map(h => '<button type="button" class="btn sm" data-act="cnt-hr" data-id="' + esc(c.id) + '" data-h="' + h + '"' + dis + '>+' + h + '</button>').join('') +
+      '<button type="button" class="btn sm quiet" data-act="cnt-hr" data-id="' + esc(c.id) + '" data-h="-0.5"' + dis + '>−½</button></div>';
+  } else {
+    const didToday = c.last === tk;
+    ctrl = '<div class="cnt-ctrl">' + (didToday ?
+      '<button type="button" class="btn sm quiet" data-act="cnt-undo" data-id="' + esc(c.id) + '"' + dis + '>✓ Hecho hoy (deshacer)</button>' :
+      '<button type="button" class="btn sm" data-act="cnt-today" data-id="' + esc(c.id) + '"' + dis + '>Hecho hoy</button>') + '</div>';
+  }
+  const best = c.type === 'racha' && (c.best || 0) > 0 ? '<span class="cnt-best">Mejor racha: ' + c.best + ' días</span>' : '';
+  const delArmed = S.confirmDel === 'cnt:' + c.id;
+  return '<section class="card cnt-card' + (done ? ' done' : '') + '">' +
+    '<div class="cnt-h"><span class="cnt-n">' + esc(c.name) + '</span><span class="cnt-v">' + cntValueText(c) + cntTargetText(c) + '</span></div>' +
+    bar + best + ctrl +
+    '<div class="cnt-acts"><button type="button" class="btn xs quiet" data-act="cnt-edit" data-id="' + esc(c.id) + '"' + dis + '>Editar</button>' +
+    '<button type="button" class="btn xs ' + (delArmed ? 'danger' : 'quiet') + '" data-act="cnt-del" data-id="' + esc(c.id) + '"' + dis + '>' + (delArmed ? '¿Borrar?' : 'Borrar') + '</button></div></section>';
+}
+function countersSectionHTML() {
+  const list = countersList(), dis = S.readonly || !S.loaded.counters ? ' disabled' : '';
+  let h = '<section class="card"><div class="card-h"><h2>Contadores</h2><span class="meta">' + list.length + '</span></div>' +
+    (!S.loaded.counters ? '<p class="empty">Cargando…</p>' :
+      !list.length ? '<p class="empty">Crea contadores para trackear lo que quieras: <b>horas</b>, <b>veces</b> o <b>rachas</b>. Perfectos para los objetivos de tus jefes.</p>' : '') +
+    '</section>';
+  if (S.loaded.counters) h += list.map(counterCardHTML).join('');
+  const kBtn = (v, l) => '<button type="button" class="tgl" data-act="cnt-type" data-v="' + v + '" aria-pressed="' + (S.cont.addType === v) + '">' + l + '</button>';
+  h += '<section class="card"><div class="card-h"><h2>Nuevo contador</h2></div>' +
+    '<div class="field"><label class="lbl" for="cnt-name">Nombre</label><input type="text" id="cnt-name" data-draft maxlength="40" autocomplete="off" placeholder="Ej: Horas de vibe coding" value="' + esc(draft('cnt-name', '')) + '"></div>' +
+    '<div class="field"><span class="lbl">Tipo</span><div class="toggles">' + kBtn('veces', 'Veces') + kBtn('horas', 'Horas') + kBtn('racha', 'Racha') + '</div></div>' +
+    '<div class="field"><label class="lbl" for="cnt-target">Meta (opcional)</label><input type="text" inputmode="decimal" id="cnt-target" data-draft autocomplete="off" placeholder="Ej: 80" value="' + esc(draft('cnt-target', '')) + '"></div>' +
+    (S.cont.err ? '<p class="form-err">' + esc(S.cont.err) + '</p>' : '') +
+    '<button type="button" class="btn" data-act="cnt-add"' + dis + '>Agregar contador</button>' +
+    '<p class="hint">Veces: suma +1 cada vez. Horas: suma horas acumuladas. Racha: marca «Hecho hoy» cada día; si fallas un día, vuelve a empezar.</p></section>';
+  return h;
+}
+function counterAdd() {
+  if (S.readonly || !S.loaded.counters) return;
+  const name = String((($('#cnt-name') || {}).value) || '').trim().slice(0, 40);
+  const tg = parseNum(String((($('#cnt-target') || {}).value) || ''));
+  if (!name) { S.cont.err = 'Escribe un nombre.'; renderHabitos(); return; }
+  if (countersList().length >= CNT_CAP) { S.cont.err = 'Llegaste al máximo de contadores.'; renderHabitos(); return; }
+  const c = { id: uid(), name, type: S.cont.addType || 'veces', target: (tg > 0 ? r1(tg) : null), value: 0, best: 0, last: '' };
+  S.counters = { items: countersList().concat([c]) };
+  delete S.drafts['cnt-name']; delete S.drafts['cnt-target']; S.cont.err = '';
+  saveCounters(); renderHabitos();
+}
+function counterSaveEdit(id) {
+  const c = cntFind(id); if (!c) return;
+  const nm = String((($('#cnt-ename') || {}).value) || '').trim().slice(0, 40);
+  const tg = parseNum(String((($('#cnt-etarget') || {}).value) || ''));
+  if (!nm) { toast('Escribe un nombre.'); return; }
+  S.cont.editing = null;
+  cntMut(id, x => { x.name = nm; x.target = (tg > 0 ? r1(tg) : null); });
+}
+function v18Click(act, el, id) {
+  switch (act) {
+    case 'cnt-type': S.cont.addType = el.dataset.v; renderHabitos(); return true;
+    case 'cnt-add': counterAdd(); return true;
+    case 'cnt-inc': cntMut(el.dataset.id, c => { c.value = (c.value || 0) + 1; }); return true;
+    case 'cnt-dec': cntMut(el.dataset.id, c => { c.value = Math.max(0, (c.value || 0) - 1); }); return true;
+    case 'cnt-hr': cntMut(el.dataset.id, c => { c.value = Math.max(0, r1((c.value || 0) + Number(el.dataset.h))); }); return true;
+    case 'cnt-today': cntMut(el.dataset.id, c => { const tk = todayKey(); if (c.last === tk) return; c.value = (c.last === addDays(tk, -1) ? (c.value || 0) : 0) + 1; c.last = tk; c.best = Math.max(c.best || 0, c.value); }); return true;
+    case 'cnt-undo': cntMut(el.dataset.id, c => { const tk = todayKey(); if (c.last !== tk) return; c.value = Math.max(0, (c.value || 0) - 1); c.last = c.value > 0 ? addDays(tk, -1) : ''; }); return true;
+    case 'cnt-edit': S.cont.editing = el.dataset.id; renderHabitos(); return true;
+    case 'cnt-editx': S.cont.editing = null; renderHabitos(); return true;
+    case 'cnt-save': counterSaveEdit(el.dataset.id); return true;
+    case 'cnt-del': confirmOrDo('cnt:' + el.dataset.id, () => { S.counters = { items: countersList().filter(c => c.id !== el.dataset.id) }; saveCounters(); }, renderHabitos); return true;
+  }
+  return false;
+}
+
 secInstall();
 boot();

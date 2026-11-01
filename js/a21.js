@@ -105,9 +105,10 @@ function v4Click(act, el, id) {
   if (v11Click(act, el, id)) return;
   if (v12Click(act, el, id)) return;
   if (v16Click(act, el, id)) return;
+  if (v18Click(act, el, id)) return;
   const st = S.sheet;
   switch (act) {
-    case 'htab': S.hab.tab = ['rem', 'boss'].indexOf(el.dataset.v) >= 0 ? el.dataset.v : 'hab'; lsSet('ascend-htab', S.hab.tab); renderHabitos(); return true;
+    case 'htab': S.hab.tab = ['rem', 'boss', 'cont'].indexOf(el.dataset.v) >= 0 ? el.dataset.v : 'hab'; lsSet('ascend-htab', S.hab.tab); renderHabitos(); return true;
     case 'hab-new': openHabitEdit(null); return true;
     case 'hab-open': openSheet({ kind: 'hdetail', step: 'detail', k: el.dataset.k, month: monthStart(todayKey()) }); return true;
     case 'hab-edit': openHabitEdit(el.dataset.k); return true;
