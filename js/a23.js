@@ -10,7 +10,8 @@ function secUnlockGate(meta) {
           '<form id="sg-form" class="sec-form" novalidate><div class="field"><label class="lbl" for="sg-pass">Frase secreta</label><input type="password" id="sg-pass" autocomplete="current-password" maxlength="256"></div>' +
           '<label class="consent"><input type="checkbox" id="sg-rem" checked><span>Recordar en este dispositivo (no la pide otra vez hasta que cierres sesión)</span></label>' +
           '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="submit" class="btn" id="sg-go">Abrir mis datos</button></form>' +
-          '<div class="row between"><button type="button" class="link" id="sg-rec">Olvidé mi frase</button><button type="button" class="link" id="sg-out">Cerrar sesión</button></div>';
+          '<div class="row between"><button type="button" class="link" id="sg-rec">Olvidé mi frase</button><button type="button" class="link" id="sg-out">Cerrar sesión</button></div>' +
+          '<p class="hint" style="margin-top:12px;text-align:center"><button type="button" class="link" id="sg-reset">No tengo la frase ni el código</button></p>';
       } else if (mode === 'rec') {
         h = '<h2 class="auth-h">Usar el código de recuperación</h2><p class="prose">Escribe el código que guardaste al activar el cifrado y crea una frase secreta nueva.</p>' +
           '<form id="sg-form" class="sec-form" novalidate><div class="field"><label class="lbl" for="sg-code">Código de recuperación</label><input type="text" id="sg-code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64"></div>' +
@@ -18,6 +19,11 @@ function secUnlockGate(meta) {
           '<div class="field"><label class="lbl" for="sg-n2">Repite la frase nueva</label><input type="password" id="sg-n2" autocomplete="new-password" maxlength="256"></div>' +
           '<label class="consent"><input type="checkbox" id="sg-rem" checked><span>Recordar en este dispositivo</span></label>' +
           '<p class="form-err" id="sg-err">' + esc(err || '') + '</p><button type="submit" class="btn" id="sg-go">Recuperar mis datos</button></form>' +
+          '<button type="button" class="link" id="sg-back">Volver</button>';
+      } else if (mode === 'reset') {
+        h = '<h2 class="auth-h">Entrar sin la frase</h2><p class="prose">Si no tienes la frase secreta ni el código de recuperación, puedes volver a entrar desactivando el cifrado. <b>No se borra ningún registro.</b> Lo único es que los datos que ya quedaron cifrados no se podrán mostrar, porque sin la frase nadie puede abrirlos. Todo lo demás vuelve a la normalidad y entras con tu correo y contraseña.</p>' +
+          '<p class="form-err" id="sg-err">' + esc(err || '') + '</p>' +
+          '<button type="button" class="btn danger" id="sg-reset-go">Entrar sin cifrado</button>' +
           '<button type="button" class="link" id="sg-back">Volver</button>';
       } else {
         h = '<h2 class="auth-h">Tu código de recuperación nuevo</h2><p class="prose">El código anterior ya no sirve. Guarda este en un lugar seguro: es la única forma de abrir tus datos si olvidas tu frase.</p>' +
@@ -75,6 +81,19 @@ function secUnlockGate(meta) {
       const t = e.target.closest('button');
       if (!t || busy) return;
       if (t.id === 'sg-rec') { mode = 'rec'; draw(); }
+      else if (t.id === 'sg-reset') { mode = 'reset'; draw(); }
+      else if (t.id === 'sg-reset-go') {
+        busy = true;
+        (async () => {
+          try {
+            const res = await sb.from('docs').delete().eq('user_id', store.userId).eq('path', SEC.VAULT);
+            if (res && res.error) throw res.error;
+            await secKeyDel(store.userId);
+            SEC.vault.key = null; SEC.vault.meta = null; SEC.vault.bad = []; SEC.vault.remembered = false;
+            location.reload();
+          } catch (err) { busy = false; draw('No se pudo. Revisa tu conexión e intenta de nuevo.'); }
+        })();
+      }
       else if (t.id === 'sg-back') { mode = 'pass'; draw(); }
       else if (t.id === 'sg-out') { busy = true; secLogout(false); }
       else if (t.id === 'sg-copy') secCopy(newCode);
