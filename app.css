@@ -610,5 +610,6 @@ details.cat summary small{font-family:var(--f-mono);color:var(--muted);font-weig
 .cnt-acts{display:flex;gap:8px;margin-top:10px}
 .cnt-edit .field{margin-bottom:8px}
 
-.cnt-amt{width:68px;flex:0 0 auto;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);color:inherit;font:inherit}
+.cnt-ctrl .cnt-amt{width:68px;flex:0 0 auto;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);color:inherit;font:inherit;min-height:34px}
+.cnt-card .m-bar{display:block;height:4px;margin:10px 0 2px}
 .cnt-pct{display:inline-block;font-size:12px;font-weight:650;color:var(--accent);margin-top:4px}
