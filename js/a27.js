@@ -495,11 +495,11 @@ function counterCardHTML(c) {
   if (c.type === 'veces') {
     ctrl = '<div class="cnt-ctrl"><button type="button" class="btn sm quiet" data-act="cnt-dec" data-id="' + esc(c.id) + '"' + dis + '>−1</button>' +
       '<button type="button" class="btn sm" data-act="cnt-inc" data-id="' + esc(c.id) + '"' + dis + '>+1</button>' +
-      '<input type="text" inputmode="numeric" class="cnt-amt" id="cnt-amt-' + esc(c.id) + '" placeholder="N"' + dis + '>' +
+      '<input type="text" inputmode="numeric" class="cnt-amt" id="cnt-amt-' + esc(c.id) + '" data-draft placeholder="N" value="' + esc(draft('cnt-amt-' + c.id, '')) + '"' + dis + '>' +
       '<button type="button" class="btn sm" data-act="cnt-addn" data-id="' + esc(c.id) + '"' + dis + '>+ agregar</button></div>';
   } else if (c.type === 'horas') {
     ctrl = '<div class="cnt-ctrl">' + [[0.25, '15 min'], [0.5, '30 min'], [0.75, '45 min'], [1, '1 h']].map(x => '<button type="button" class="btn sm" data-act="cnt-hr" data-id="' + esc(c.id) + '" data-h="' + x[0] + '"' + dis + '>+' + x[1] + '</button>').join('') + '</div>' +
-      '<div class="cnt-ctrl"><input type="text" inputmode="numeric" class="cnt-amt" id="cnt-amt-' + esc(c.id) + '" placeholder="min"' + dis + '>' +
+      '<div class="cnt-ctrl"><input type="text" inputmode="numeric" class="cnt-amt" id="cnt-amt-' + esc(c.id) + '" data-draft placeholder="min" value="' + esc(draft('cnt-amt-' + c.id, '')) + '"' + dis + '>' +
       '<button type="button" class="btn sm" data-act="cnt-hrmin" data-id="' + esc(c.id) + '"' + dis + '>+ min</button>' +
       '<button type="button" class="btn sm quiet" data-act="cnt-hr" data-id="' + esc(c.id) + '" data-h="-0.25"' + dis + '>−15 min</button></div>';
   } else {
@@ -559,8 +559,8 @@ function v18Click(act, el, id) {
     case 'cnt-inc': cntMut(el.dataset.id, c => { c.value = (c.value || 0) + 1; }); return true;
     case 'cnt-dec': cntMut(el.dataset.id, c => { c.value = Math.max(0, (c.value || 0) - 1); }); return true;
     case 'cnt-hr': cntMut(el.dataset.id, c => { c.value = Math.max(0, r2((c.value || 0) + Number(el.dataset.h))); }); return true;
-    case 'cnt-addn': { const amt = document.getElementById('cnt-amt-' + el.dataset.id); const n = parseNum(amt ? amt.value : ''); if (n > 0) cntMut(el.dataset.id, c => { c.value = (c.value || 0) + Math.round(n); }); return true; }
-    case 'cnt-hrmin': { const amt = document.getElementById('cnt-amt-' + el.dataset.id); const m = parseNum(amt ? amt.value : ''); if (m > 0) cntMut(el.dataset.id, c => { c.value = Math.max(0, r2((c.value || 0) + m / 60)); }); return true; }
+    case 'cnt-addn': { const amt = document.getElementById('cnt-amt-' + el.dataset.id); const n = parseNum(amt ? amt.value : ''); if (n > 0) { delete S.drafts['cnt-amt-' + el.dataset.id]; cntMut(el.dataset.id, c => { c.value = (c.value || 0) + Math.round(n); }); } return true; }
+    case 'cnt-hrmin': { const amt = document.getElementById('cnt-amt-' + el.dataset.id); const m = parseNum(amt ? amt.value : ''); if (m > 0) { delete S.drafts['cnt-amt-' + el.dataset.id]; cntMut(el.dataset.id, c => { c.value = Math.max(0, r2((c.value || 0) + m / 60)); }); } return true; }
     case 'cnt-today': cntMut(el.dataset.id, c => { const tk = todayKey(); if (c.last === tk) return; c.value = (c.last === addDays(tk, -1) ? (c.value || 0) : 0) + 1; c.last = tk; c.best = Math.max(c.best || 0, c.value); }); return true;
     case 'cnt-undo': cntMut(el.dataset.id, c => { const tk = todayKey(); if (c.last !== tk) return; c.value = Math.max(0, (c.value || 0) - 1); c.last = c.value > 0 ? addDays(tk, -1) : ''; }); return true;
     case 'cnt-edit': S.cont.editing = el.dataset.id; renderHabitos(); return true;

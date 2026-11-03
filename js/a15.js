@@ -23,7 +23,7 @@ function exportData() {
   a.click();
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
 }
-const IMPORT_COLS = ['config', 'days', 'measures', 'labs', 'questions', 'foods', 'recipes'];
+const IMPORT_COLS = ['config', 'days', 'measures', 'labs', 'questions', 'foods', 'recipes', 'reminders'];
 async function importData(input) {
   const file = input.files && input.files[0];
   input.value = '';

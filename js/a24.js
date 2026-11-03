@@ -181,14 +181,9 @@ function secInstall() {
         store.userId = user.id;
         S.userEmail = user.email || '';
         if (await secNeedsMfa()) { if (!(await secMfaGate())) return; }
-        let meta = null;
-        try { meta = await secFetchMeta(); } catch (e) { meta = null; }
-        if (meta && secCryptoOK()) {
-          const key = (await secRemembered(meta)) || (await secUnlockGate(meta));
-          if (!key) return;
-          SEC.vault.key = key;
-          SEC.vault.meta = meta;
-        }
+        // Cifrado de extremo a extremo retirado: el arranque nunca se bloquea con una frase,
+        // y los datos se guardan sin cifrar para que siempre se puedan recuperar.
+        SEC.vault.key = null; SEC.vault.meta = null;
         secGateClose();
         secTouch();
         await _startApp(user);

@@ -339,20 +339,9 @@ async function secHeal(paths) {
 }
 
 /* ---------- bóveda: activar, cambiar, desactivar ---------- */
-async function secVaultEnable(pass, code, remember) {
-  await secQuiet();
-  await secWithGate(async () => {
-    const raw = secRnd(32);
-    const key = await secImportKey(raw);
-    const meta = await secMakeMeta(raw, key, pass, code);
-    raw.fill(0);
-    await secPutRaw(SEC.VAULT, meta); /* primero la llave envuelta: así nunca hay datos cifrados sin forma de abrirlos */
-    SEC.vault.meta = meta;
-    SEC.vault.key = key;
-    await secEncryptPaths(Object.keys(store.docs), key);
-    SEC.vault.remembered = !!remember;
-    if (remember) await secKeyPut(store.userId, key); else await secKeyDel(store.userId);
-  });
+async function secVaultEnable() {
+  /* Cifrado de extremo a extremo retirado: ya no se puede activar, para no volver a perder datos. */
+  try { toast('El cifrado de extremo a extremo ya no está disponible.'); } catch (e) {}
 }
 async function secVaultDisable(pass) {
   const raw = await secRawFrom(SEC.vault.meta, pass);
