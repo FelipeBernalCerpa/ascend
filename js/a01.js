@@ -343,7 +343,39 @@ const FOODS = [
   FD('tamal', 'Tamal', 8, [180, 7, 17, 1, 2, 9, 3, 400], [['unidad', 350]], 'a', 'tamales'),
   FD('pizza', 'Pizza de queso', 8, [266, 11.4, 33.3, 3.6, 2.3, 9.7, 4.5, 598], [['porción', 110]], '', ''),
   FD('hamburguesa', 'Hamburguesa sencilla', 8, [250, 13, 25, 5, 1.5, 11, 4, 500], [['unidad', 200]], 'a', 'hamburguesas'),
-  FD('perro', 'Perro caliente', 8, [270, 10, 25, 4, 1, 15, 5.5, 750], [['unidad', 150]], 'a', 'hot dog salchicha')
+  FD('perro', 'Perro caliente', 8, [270, 10, 25, 4, 1, 15, 5.5, 750], [['unidad', 150]], 'a', 'hot dog salchicha'),
+  /* 2 · frutas (adicionales) */
+  FD('guanabana', 'Guanábana (pulpa)', 2, [66, 1, 16.8, 13.5, 3.3, 0.3, 0.1, 14], [['taza', 225]], 'a', 'graviola'),
+  FD('lulo', 'Lulo (pulpa)', 2, [25, 0.9, 5.7, 1.9, 1.1, 0.2, 0, 3], [['unidad', 100]], 'a', 'naranjilla'),
+  FD('granadilla', 'Granadilla', 2, [68, 2.4, 13, 11, 3, 0.4, 0, 28], [['unidad', 60]], 'a', ''),
+  FD('pitaya', 'Pitaya (fruta del dragón)', 2, [60, 1.2, 13, 8, 3, 0.4, 0, 0], [['unidad', 150]], 'a', 'dragon'),
+  FD('uchuva', 'Uchuva', 2, [53, 1.9, 11, 5.8, 4, 0.7, 0, 1], [['taza', 140]], 'a', 'physalis'),
+  FD('tomate_arbol', 'Tomate de árbol', 2, [31, 2, 7, 5, 1.1, 0.4, 0, 3], [['unidad', 60]], 'a', ''),
+  FD('curuba', 'Curuba (pulpa)', 2, [25, 0.6, 6.3, 4, 1.4, 0.1, 0, 2], [['unidad', 40]], 'a', ''),
+  FD('feijoa', 'Feijoa', 2, [55, 1, 13, 8, 6, 0.6, 0, 3], [['unidad', 50]], 'a', ''),
+  FD('nispero', 'Níspero', 2, [47, 0.4, 12, 10, 1.7, 0.2, 0, 1], [['unidad', 40]], 'a', ''),
+  FD('zapote', 'Zapote (mamey)', 2, [124, 1.5, 32, 20, 5.4, 0.5, 0.2, 7], [['taza', 175]], 'a', 'mamey'),
+  FD('carambolo', 'Carambolo', 2, [31, 1, 6.7, 4, 2.8, 0.3, 0, 2], [['unidad', 90]], 'a', 'starfruit'),
+  FD('chontaduro', 'Chontaduro', 2, [185, 3.3, 37, 2, 4.5, 4.6, 1.2, 5], [['unidad', 30]], 'a', ''),
+  /* 7 · helados y dulces (adicionales) */
+  FD('cono_helado', 'Cono de helado (1 bola)', 7, [220, 3.6, 28, 20, 0.6, 10.5, 6, 90], [['cono', 90]], 'a', 'barquillo'),
+  FD('helado_choco', 'Helado de chocolate', 7, [216, 3.8, 28, 25, 1.2, 11, 6.8, 76], [['bola', 66]], '', ''),
+  FD('paleta_agua', 'Paleta de agua', 7, [80, 0, 20, 18, 0, 0, 0, 10], [['paleta', 66]], 'a', 'bolis'),
+  FD('paleta_crema', 'Paleta de crema', 7, [130, 2, 18, 16, 0, 5.5, 3.5, 40], [['paleta', 70]], 'a', ''),
+  FD('sorbete', 'Sorbete (helado de agua)', 7, [144, 1.1, 30, 24, 1.3, 2, 1.2, 46], [['bola', 74]], 'a', 'sherbet'),
+  FD('malteada', 'Malteada', 7, [112, 3.2, 18, 16, 0.2, 3, 1.9, 60], [['vaso', 300]], 'al', 'milkshake batido'),
+  FD('raspado', 'Raspado (cholado)', 7, [120, 0.2, 30, 28, 0.2, 0.1, 0, 10], [['vaso', 220]], 'a', 'cholado granizado'),
+  /* 8 · desayunos y almuerzos (adicionales) */
+  FD('changua', 'Changua (sopa de leche con huevo)', 8, [55, 3.5, 4, 2.5, 0.2, 2.8, 1.3, 220], [['plato', 350]], 'a', 'desayuno'),
+  FD('calentado', 'Calentado paisa', 8, [160, 6, 24, 1, 4, 4, 1.2, 280], [['porción', 200]], 'a', 'desayuno recalentado'),
+  FD('huevos_pericos', 'Huevos pericos', 8, [155, 10.5, 2.5, 1.8, 0.4, 11.5, 3.4, 190], [['porción (2 huevos)', 130]], 'a', 'huevo tomate cebolla'),
+  FD('caldo_costilla', 'Caldo de costilla', 8, [45, 4, 3, 0.5, 0.4, 2, 0.8, 300], [['plato', 400]], 'a', 'desayuno sopa'),
+  FD('arepa_huevo', 'Arepa de huevo', 8, [290, 7, 28, 1, 2, 17, 4.5, 350], [['unidad', 120]], 'a', ''),
+  FD('bandeja_paisa', 'Bandeja paisa', 8, [185, 9, 16, 1, 4, 10, 3.5, 420], [['plato', 500]], 'a', ''),
+  FD('sudado_pollo', 'Sudado de pollo', 8, [110, 9, 8, 1.5, 1, 4.5, 1.3, 300], [['plato', 350]], 'a', 'guiso'),
+  FD('pescado_frito', 'Pescado frito con patacón', 8, [200, 15, 15, 0.5, 2, 10, 2.5, 350], [['plato', 300]], 'a', 'mojarra'),
+  FD('mondongo', 'Mondongo', 8, [70, 6, 5, 1, 1, 3, 1, 300], [['plato', 400]], 'a', 'sopa'),
+  FD('corrientazo', 'Almuerzo: arroz, lenteja y carne', 8, [150, 8, 22, 1, 3, 3.5, 1.2, 300], [['plato', 400]], 'a', 'corrientazo ejecutivo')
 ];
 /* comidas frecuentes que ya vienen con la app */
 const BUILTIN_RECIPES = [

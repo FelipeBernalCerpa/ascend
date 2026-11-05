@@ -584,7 +584,7 @@ function maybeWelcome() {
       '<li>📅 <b>Hoy</b> — registra tus comidas, agua, ejercicio y sueño del día.</li>' +
       '<li>📈 <b>Progreso</b> — mira tus tendencias, rachas y logros.</li>' +
       '<li>✅ <b>Hábitos</b> — crea hábitos, recordatorios, contadores y <b>retos</b> (metas grandes divididas en etapas, con una recompensa al lograrlas).</li>' +
-      '<li>🩺 <b>Salud</b> — tus medidas, exámenes y medicamentos.</li>' +
+      '<li>🩺 <b>Salud</b> — tus medidas y exámenes. Puedes <b>activar Medicamentos</b> para registrar los que tomas y recibir recordatorios.</li>' +
       '<li>🎯 <b>Plan</b> — tus metas de nutrición y objetivos.</li>' +
     '</ul>' +
     '<button type="button" id="welcome-go" class="btn" style="width:100%">Empezar</button></div>';
