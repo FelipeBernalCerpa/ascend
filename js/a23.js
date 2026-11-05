@@ -104,12 +104,9 @@ function secUnlockGate(meta) {
   });
 }
 async function secNeedsMfa() {
-  try {
-    if (!sb.auth.mfa) return false;
-    const r = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
-    const d = r && r.data;
-    return !!(d && d.nextLevel === 'aal2' && d.currentLevel !== 'aal2');
-  } catch (e) { return false; }
+  /* Verificación en dos pasos retirada: el login nunca se bloquea con un código,
+     así correo + contraseña (que se puede restablecer) siempre basta para entrar. */
+  return false;
 }
 function secMfaGate() {
   return new Promise(resolve => {
@@ -285,13 +282,9 @@ function secCardHTML() {
   const ai = secAiOK() ? 'Permitido' + (SEC.consent.aiAt ? ' desde el ' + fmtDate(keyOf(new Date(SEC.consent.aiAt))) : '') + '. Solo se envía lo necesario cuando la usas.' : 'Sin permiso: te lo pedimos antes de usarla.';
   const idle = secIdleMin();
   return '<section class="card" id="card-sec"><div class="card-h"><h2>Seguridad y privacidad</h2></div><div class="sec-rows">' +
-    secRow('sec-r-vault', 'Cifrado de extremo a extremo',
-      vOn ? 'Activado. Solo tú, con tu frase secreta, puedes leer tus registros.' + (v.remembered ? ' Recordado en este dispositivo.' : '') : secCryptoOK() ? 'Desactivado. Tus datos se cifran en tránsito y en el servidor.' : 'Este navegador no permite cifrar en el dispositivo.',
-      '<button type="button" class="btn sm' + (vOn ? ' quiet' : '') + '" id="sec-vault" data-act="sec-vault"' + (secCryptoOK() ? ro : ' disabled') + '>' + (vOn ? 'Administrar' : 'Activar') + '</button>') +
-    (v.bad && v.bad.length ? '<p class="banner">' + plural(v.bad.length, 'registro cifrado no se pudo', 'registros cifrados no se pudieron') + ' abrir con tu llave y no se muestran.</p>' : '') +
-    secRow('sec-r-mfa', 'Verificación en dos pasos',
-      SEC.mfa.on == null ? 'Revisando…' : SEC.mfa.on ? 'Activada. Al entrar te pedimos el código de tu app de autenticación.' : 'Desactivada. Actívala para que tu contraseña sola no baste para entrar.',
-      SEC.mfa.on == null ? '' : '<button type="button" class="btn sm' + (SEC.mfa.on ? ' ' + (mfaArmed ? 'danger' : 'quiet') : '') + '" id="sec-mfa" data-act="' + (SEC.mfa.on ? 'sec-mfaoff' : 'sec-mfa') + '"' + ro + '>' + (SEC.mfa.on ? (mfaArmed ? '¿Desactivar?' : 'Desactivar') : 'Activar') + '</button>') +
+    secRow('sec-r-backup', 'Tus datos están a salvo',
+      'Todo se guarda en tu cuenta en la nube. Si borras la app y la vuelves a instalar, entras con tu correo y contraseña —que puedes restablecer cuando quieras— y todo vuelve tal cual. No hay frases ni códigos que te puedan dejar por fuera.',
+      '') +
     secRow('sec-r-idle', 'Cerrar sesión por inactividad', 'En este dispositivo, si no usas Ascend durante:',
       '<label class="lbl sr" for="sec-idle">Cerrar sesión tras</label><select id="sec-idle" class="sec-sel">' + SEC_IDLE.map(o => '<option value="' + o[0] + '"' + (o[0] === idle ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select>') +
     secRow('sec-r-ai', 'Asistente con IA', ai,
