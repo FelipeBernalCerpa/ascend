@@ -12,8 +12,8 @@ function quoteHTML() {
   return '<div class="quote-hoy" role="note"><p class="q-t">' + esc(q.t) + '</p><p class="q-a">' + esc(q.a) + '</p></div>';
 }
 
-/* ---------- v7: jefes finales editables ----------
-   Una meta grande dividida en etapas; cada etapa tiene hábitos que marcas. Al terminar todo, derrotas al jefe y ganas XP. */
+/* ---------- v7: retos editables ----------
+   Una meta grande dividida en etapas; cada etapa tiene hábitos que marcas. Al terminar todo, derrotas al reto y ganas XP. */
 S.bosses = null; S.loaded.bosses = false;
 const MAX_BOSSES = 15, MAX_STAGES = 8, MAX_BITEMS = 12, BOSS_CAP = 60;
 const BOSS_ICONS = ['🧥', '🏃', '💪', '🏆', '🎯', '📚', '🧠', '🥇', '⛰️', '🔥', '💰', '🎸', '🩺', '🌱'];
@@ -51,7 +51,7 @@ function bossCardHTML(b) {
   return '<button type="button" class="bosscard' + (p.defeated ? ' won' : '') + '" id="bc-' + esc(b.id) + '" data-act="boss-open" data-id="' + esc(b.id) + '">' +
     '<span class="bc-ic">' + esc(b.icon || '🎯') + '</span>' +
     '<span class="bc-b"><span class="bc-n">' + esc(b.name) + '</span>' +
-      '<span class="bc-s">' + (p.defeated ? '¡Derrotado!' : 'Etapa ' + (p.active + 1) + ' de ' + (b.stages ? b.stages.length : 0)) + ' · ' + p.done + '/' + p.total + '</span>' +
+      '<span class="bc-s">' + (p.defeated ? '¡Completado!' : 'Etapa ' + (p.active + 1) + ' de ' + (b.stages ? b.stages.length : 0)) + ' · ' + p.done + '/' + p.total + '</span>' +
       '<span class="bc-bar"><i style="width:' + p.pct + '%"></i></span></span>' +
     (p.defeated ? '<span class="bc-win">🏆</span>' : '') + '</button>';
 }
@@ -59,29 +59,29 @@ function bossSectionHTML() {
   const list = bossesList(), dis = S.readonly || !S.loaded.bosses ? ' disabled' : '';
   const active = list.filter(b => !bossProg(b).defeated);
   const won = list.filter(b => bossProg(b).defeated);
-  let html = '<section class="card" id="card-boss"><div class="card-h"><h2>Jefes finales</h2><span class="meta">' + active.length + ' en progreso</span></div>';
+  let html = '<section class="card" id="card-boss"><div class="card-h"><h2>Retos</h2><span class="meta">' + active.length + ' en progreso</span></div>';
   if (!S.loaded.bosses) html += '<p class="empty">Cargando…</p>';
-  else if (!list.length) html += '<p class="empty">Un jefe final es una meta grande por etapas. Elige algo que quieras lograr y conviértelo en tu próximo reto.</p>';
+  else if (!list.length) html += '<p class="empty">Un reto es una meta grande por etapas. Elige algo que quieras lograr y conviértelo en tu próximo reto.</p>';
   else {
     html += '<p class="sh-sec">En progreso</p>';
     html += active.length ? '<div class="bosses">' + active.map(bossCardHTML).join('') + '</div>'
-      : '<p class="empty">No tienes jefes en progreso. Crea uno nuevo abajo.</p>';
-    if (won.length) html += '<p class="sh-sec">Derrotados <small>' + won.length + '</small></p><div class="bosses">' + won.map(bossCardHTML).join('') + '</div>';
+      : '<p class="empty">No tienes retos en progreso. Crea uno nuevo abajo.</p>';
+    if (won.length) html += '<p class="sh-sec">Completados <small>' + won.length + '</small></p><div class="bosses">' + won.map(bossCardHTML).join('') + '</div>';
   }
-  html += '<button type="button" class="btn add-top" id="boss-new" data-act="boss-new"' + dis + '>Nuevo jefe final</button>' +
-    '<p class="hint">Cada hábito que marcas le quita vida al jefe. Al vaciar su barra, lo derrotas y pasa a «Derrotados». Puedes tener hasta ' + MAX_BOSSES + ' jefes en progreso; los derrotados quedan guardados aparte.</p></section>';
+  html += '<button type="button" class="btn add-top" id="boss-new" data-act="boss-new"' + dis + '>Nuevo reto</button>' +
+    '<p class="hint">Cada hábito que marcas avanza tu reto. Al completar todas las etapas, lo logras y pasa a «Completados». Puedes tener hasta ' + MAX_BOSSES + ' retos en progreso; los completados quedan guardados aparte.</p></section>';
   return html;
 }
 
 function shBossHTML(st) {
   if (st.step === 'edit') return shBossEditHTML(st);
   const b = bossesList().find(x => x.id === st.id);
-  if (!b) return sheetTop('Jefe final') + '<p class="empty">Este jefe ya no existe.</p>';
+  if (!b) return sheetTop('Reto') + '<p class="empty">Este reto ya no existe.</p>';
   const p = bossProg(b), armed = S.confirmDel === 'bdel:' + b.id;
   let body = '';
   (b.stages || []).forEach((s, i) => {
     const sd = stageDone(s), act = i === p.active && !p.defeated;
-    body += '<div class="bstage' + (sd ? ' done' : act ? ' act' : '') + '"><div class="bst-h"><span class="bst-n">' + esc(s.name || ('Etapa ' + (i + 1))) + '</span>' + (sd ? '<span class="bst-mk">✅</span>' : act ? '<span class="bst-mk">⚔️</span>' : '') + '</div>';
+    body += '<div class="bstage' + (sd ? ' done' : act ? ' act' : '') + '"><div class="bst-h"><span class="bst-n">' + esc(s.name || ('Etapa ' + (i + 1))) + '</span>' + (sd ? '<span class="bst-mk">✅</span>' : act ? '<span class="bst-mk">▶</span>' : '') + '</div>';
     (s.items || []).forEach(it => {
       body += '<button type="button" class="bitem' + (it.done ? ' done' : '') + '" data-act="boss-check" data-id="' + esc(b.id) + '" data-si="' + s.id + '" data-ii="' + it.id + '"' + (S.readonly ? ' disabled' : '') + '><span class="bchk' + (it.done ? ' on' : '') + '">' + (it.done ? '✓' : '') + '</span><span>' + esc(it.t) + '</span></button>';
     });
@@ -89,11 +89,11 @@ function shBossHTML(st) {
   });
   return sheetTop((b.icon || '🎯') + '  ' + b.name) +
     (b.reward ? '<p class="boss-reward">🎁 Recompensa: ' + esc(b.reward) + '</p>' : '') +
-    '<div class="hp-row"><span class="hp-l">' + (p.defeated ? 'Jefe derrotado' : 'Vida del jefe') + '</span><span class="hp-r">' + (p.defeated ? '0%' : 'quedan ' + (100 - p.pct) + '%') + '</span></div>' +
-    '<div class="hpbar"><i style="width:' + (100 - p.pct) + '%"></i></div>' +
+    '<div class="hp-row"><span class="hp-l">' + (p.defeated ? 'Reto completado' : 'Progreso') + '</span><span class="hp-r">' + (p.defeated ? '100%' : p.pct + '% hecho') + '</span></div>' +
+    '<div class="hpbar"><i style="width:' + p.pct + '%"></i></div>' +
     (p.defeated ? '<p class="boss-won">🏆 ¡Lo lograste! Reclama tu recompensa.</p>' : '') +
-    '<div class="bstages">' + (body || '<p class="empty">Este jefe no tiene etapas todavía. Edítalo para agregarlas.</p>') + '</div>' +
-    '<div class="row"><button type="button" class="btn" id="boss-edit" data-act="boss-edit" data-id="' + esc(b.id) + '"' + (S.readonly ? ' disabled' : '') + '>Editar jefe</button>' +
+    '<div class="bstages">' + (body || '<p class="empty">Este reto no tiene etapas todavía. Edítalo para agregarlas.</p>') + '</div>' +
+    '<div class="row"><button type="button" class="btn" id="boss-edit" data-act="boss-edit" data-id="' + esc(b.id) + '"' + (S.readonly ? ' disabled' : '') + '>Editar reto</button>' +
       '<button type="button" class="btn sm ' + (armed ? 'danger' : 'quiet') + '" id="boss-del" data-act="boss-del" data-id="' + esc(b.id) + '">' + (armed ? 'Toca otra vez para borrarlo' : 'Borrar') + '</button></div>';
 }
 function shBossEditHTML(st) {
@@ -104,15 +104,15 @@ function shBossEditHTML(st) {
       s.items.map((it, j) => '<div class="bedit-item"><input type="text" id="bf-itext-' + i + '-' + j + '" data-bf="itext" data-si="' + i + '" data-ii="' + j + '" maxlength="60" placeholder="Hábito o mini-meta" value="' + esc(it.t) + '"><button type="button" class="iconbtn" data-act="bf-delitem" data-si="' + i + '" data-ii="' + j + '" aria-label="Borrar">✕</button></div>').join('') +
       '<button type="button" class="btn sm quiet" data-act="bf-additem" data-si="' + i + '">+ Hábito</button></div>'
   ).join('');
-  return sheetTop(st.id ? 'Editar jefe' : 'Nuevo jefe final') +
+  return sheetTop(st.id ? 'Editar reto' : 'Nuevo reto') +
     '<form class="sh-form" data-form="sh-boss" novalidate>' +
-      '<div class="field"><label class="lbl" for="bf-name">Meta (el jefe)</label><input type="text" id="bf-name" data-bf="name" maxlength="50" placeholder="Correr 5 km sin parar" value="' + esc(f.name) + '"></div>' +
+      '<div class="field"><label class="lbl" for="bf-name">Meta (el reto)</label><input type="text" id="bf-name" data-bf="name" maxlength="50" placeholder="Correr 5 km sin parar" value="' + esc(f.name) + '"></div>' +
       '<div class="field"><label class="lbl" for="bf-reward">Recompensa (opcional)</label><input type="text" id="bf-reward" data-bf="reward" maxlength="80" placeholder="Lo que te darás al ganar" value="' + esc(f.reward) + '"></div>' +
       '<div class="field"><span class="lbl">Ícono</span><div class="iconpick">' + BOSS_ICONS.map(ic => '<button type="button" class="iconopt' + (ic === f.icon ? ' on' : '') + '" data-act="bf-icon" data-v="' + ic + '">' + ic + '</button>').join('') + '</div></div>' +
       '<div class="field"><span class="lbl">Etapas y hábitos</span>' + stagesHTML + '</div>' +
       '<button type="button" class="btn sm quiet" id="bf-addstage" data-act="bf-addstage">+ Etapa</button>' +
       '<p class="form-err" id="sh-err">' + esc(st.err || '') + '</p>' +
-      '<button type="submit" class="btn" id="bf-save">' + (st.id ? 'Guardar jefe' : 'Crear jefe') + '</button>' +
+      '<button type="submit" class="btn" id="bf-save">' + (st.id ? 'Guardar reto' : 'Crear reto') + '</button>' +
     '</form><p class="hint">Divide la meta en 2 a 6 etapas. En cada etapa pon los hábitos que te acercan.</p>';
 }
 function bossSync() {
@@ -148,8 +148,8 @@ function bossSave() {
   const list = bossesList().map(x => clone(x));
   let err = '';
   const stages = f.stages.map((s, i) => ({ id: 's' + uid(), name: String(s.name || '').trim().slice(0, 40), items: s.items.map(it => ({ id: 'i' + uid(), t: String(it.t || '').trim().slice(0, 60), done: false })).filter(it => it.t) })).filter(s => s.items.length);
-  if (!name) err = 'Escribe la meta del jefe.';
-  else if (!st.id && list.filter(x => !bossProg(x).defeated).length >= MAX_BOSSES) err = 'Puedes tener hasta ' + MAX_BOSSES + ' jefes en progreso. Termina o borra alguno.';
+  if (!name) err = 'Escribe la meta del reto.';
+  else if (!st.id && list.filter(x => !bossProg(x).defeated).length >= MAX_BOSSES) err = 'Puedes tener hasta ' + MAX_BOSSES + ' retos en progreso. Termina o borra alguno.';
   else if (!stages.length) err = 'Agrega al menos una etapa con un hábito.';
   if (err) { sheetErr(st, err); return; }
   const prev = st.id ? list.find(x => x.id === st.id) : null;
@@ -164,14 +164,14 @@ function bossSave() {
   saveBosses(list);
   st.step = 'view'; st.id = boss.id; renderSheet();
   renderActive();
-  toast(prev ? 'Jefe actualizado.' : 'Jefe creado: ' + name + '.');
+  toast(prev ? 'Reto actualizado.' : 'Reto creado: ' + name + '.');
 }
 function bossDelete(id) {
   confirmOrDo('bdel:' + id, () => {
     saveBosses(bossesList().filter(x => x.id !== id));
     closeSheet();
     renderActive();
-    toast('Jefe borrado.');
+    toast('Reto borrado.');
   }, () => { if (S.sheet && S.sheet.kind === 'boss') renderSheet(); });
 }
 function bossCheck(id, sid, iid) {

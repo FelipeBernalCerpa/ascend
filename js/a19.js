@@ -230,7 +230,7 @@ function renderHabitos() {
   const seg = '<div class="segc" role="tablist" aria-label="Hábitos o recordatorios">' +
     '<button type="button" role="tab" id="ht-hab" data-act="htab" data-v="hab" aria-selected="' + (t === 'hab') + '">Hábitos</button>' +
     '<button type="button" role="tab" id="ht-rem" data-act="htab" data-v="rem" aria-selected="' + (t === 'rem') + '">Recordatorios</button>' +
-    '<button type="button" role="tab" id="ht-boss" data-act="htab" data-v="boss" aria-selected="' + (t === 'boss') + '">Jefes</button>' +
+    '<button type="button" role="tab" id="ht-boss" data-act="htab" data-v="boss" aria-selected="' + (t === 'boss') + '">Retos</button>' +
     '<button type="button" role="tab" id="ht-cont" data-act="htab" data-v="cont" aria-selected="' + (t === 'cont') + '">Contadores</button></div>';
   swap(root, seg + (t === 'hab' ? habSectionHTML() : t === 'rem' ? remSectionHTML() : t === 'cont' ? countersSectionHTML() : bossSectionHTML()));
 }

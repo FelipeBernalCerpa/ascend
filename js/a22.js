@@ -101,6 +101,7 @@ async function startApp(user) {
   v4Subscribe();
   refreshStatus();
   renderActive();
+  try { if (typeof maybeWelcome === 'function') maybeWelcome(); } catch (e) {}
   if (!Object.keys(store.docs).length && !S.readonly) { setTab('guia'); openPlan(); }
 }
 async function boot() {

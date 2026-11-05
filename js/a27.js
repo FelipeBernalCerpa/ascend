@@ -520,7 +520,7 @@ function countersSectionHTML() {
   const list = countersList(), dis = S.readonly || !S.loaded.counters ? ' disabled' : '';
   let h = '<section class="card"><div class="card-h"><h2>Contadores</h2><span class="meta">' + list.length + '</span></div>' +
     (!S.loaded.counters ? '<p class="empty">Cargando…</p>' :
-      !list.length ? '<p class="empty">Crea contadores para trackear lo que quieras: <b>horas</b>, <b>veces</b> o <b>rachas</b>. Perfectos para los objetivos de tus jefes.</p>' : '') +
+      !list.length ? '<p class="empty">Crea contadores para trackear lo que quieras: <b>horas</b>, <b>veces</b> o <b>rachas</b>. Perfectos para los objetivos de tus retos.</p>' : '') +
     '</section>';
   if (S.loaded.counters) h += list.map(counterCardHTML).join('');
   const kBtn = (v, l) => '<button type="button" class="tgl" data-act="cnt-type" data-v="' + v + '" aria-pressed="' + (S.cont.addType === v) + '">' + l + '</button>';
@@ -569,6 +569,28 @@ function v18Click(act, el, id) {
     case 'cnt-del': confirmOrDo('cnt:' + el.dataset.id, () => { S.counters = { items: countersList().filter(c => c.id !== el.dataset.id) }; saveCounters(); }, renderHabitos); return true;
   }
   return false;
+}
+
+function maybeWelcome() {
+  try { if (lsGet('ascend-welcomed')) return; } catch (e) { return; }
+  if (document.getElementById('welcome-ov')) return;
+  var ov = document.createElement('div');
+  ov.id = 'welcome-ov';
+  ov.setAttribute('style', 'position:fixed;inset:0;z-index:9999;background:rgba(8,11,10,.82);display:flex;align-items:center;justify-content:center;padding:20px');
+  ov.innerHTML = '<div style="max-width:440px;width:100%;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px 20px;max-height:88vh;overflow:auto">' +
+    '<h2 style="margin:0 0 4px;font-family:var(--f-display);font-size:21px">Bienvenido a Ascend</h2>' +
+    '<p style="margin:0 0 14px;color:var(--muted);font-size:14px">Tu plan diario de salud, hábitos y metas. Esto hace cada sección:</p>' +
+    '<ul style="list-style:none;margin:0 0 16px;padding:0;display:grid;gap:10px;font-size:14.5px;line-height:1.4">' +
+      '<li>📅 <b>Hoy</b> — registra tus comidas, agua, ejercicio y sueño del día.</li>' +
+      '<li>📈 <b>Progreso</b> — mira tus tendencias, rachas y logros.</li>' +
+      '<li>✅ <b>Hábitos</b> — crea hábitos, recordatorios, contadores y <b>retos</b> (metas grandes divididas en etapas, con una recompensa al lograrlas).</li>' +
+      '<li>🩺 <b>Salud</b> — tus medidas, exámenes y medicamentos.</li>' +
+      '<li>🎯 <b>Plan</b> — tus metas de nutrición y objetivos.</li>' +
+    '</ul>' +
+    '<button type="button" id="welcome-go" class="btn" style="width:100%">Empezar</button></div>';
+  document.body.appendChild(ov);
+  var go = document.getElementById('welcome-go');
+  if (go) go.addEventListener('click', function () { try { lsSet('ascend-welcomed', '1'); } catch (e) {} ov.remove(); });
 }
 
 secInstall();
