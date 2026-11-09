@@ -48,6 +48,17 @@ function remListHTML(v, tk) {
       last.items.push(r);
     }
     body = groups.map(gr => '<p class="sh-sec">' + esc(gr.g) + '</p><div class="rems">' + gr.items.map(r => remRowHTML(r, v === 'scheduled')).join('') + '</div>').join('');
+  } else if (isList) {
+    const groups = [];
+    for (const r of items) {
+      const g = (r.s && String(r.s).trim()) ? String(r.s).trim() : 'General';
+      let last = groups.find(x => x.g === g);
+      if (!last) { last = { g, items: [] }; groups.push(last); }
+      last.items.push(r);
+    }
+    body = (groups.length === 1 && groups[0].g === 'General')
+      ? '<div class="rems">' + items.map(r => remRowHTML(r, false)).join('') + '</div>'
+      : groups.map(gr => '<p class="sh-sec">' + esc(gr.g) + '</p><div class="rems">' + gr.items.map(r => remRowHTML(r, false)).join('') + '</div>').join('');
   } else body = '<div class="rems">' + items.map(r => remRowHTML(r, showList)).join('') + '</div>';
   const armedClear = S.confirmDel === 'rem-clear';
   const armedDel = S.confirmDel === 'rl-del';
@@ -83,8 +94,8 @@ function openRem(id) {
   const isList = ['today', 'scheduled', 'all', 'flagged', 'done', 'home'].indexOf(v) < 0;
   const rp = r && r.rep ? r.rep : {};
   const e = rp.end || {};
-  const f = r ? { t: r.t, n: r.n || '', l: r.l || 'inbox', due: r.due || '', time: r.time || '', rf: rp.f || '', ri: String(rp.i || 1), rdays: Array.isArray(rp.days) ? rp.days.slice() : [], endT: e.t || 'never', endD: e.d || '', endN: String(e.n || 5), flag: !!r.flag, pri: r.pri || 0 }
-    : { t: '', n: '', l: isList ? v : 'inbox', due: v === 'today' || v === 'scheduled' ? tk : '', time: '', rf: '', ri: '1', rdays: [], endT: 'never', endD: '', endN: '5', flag: v === 'flagged', pri: 0 };
+  const f = r ? { t: r.t, n: r.n || '', l: r.l || 'inbox', s: r.s || '', due: r.due || '', time: r.time || '', rf: rp.f || '', ri: String(rp.i || 1), rdays: Array.isArray(rp.days) ? rp.days.slice() : [], endT: e.t || 'never', endD: e.d || '', endN: String(e.n || 5), flag: !!r.flag, pri: r.pri || 0 }
+    : { t: '', n: '', l: isList ? v : 'inbox', s: '', due: v === 'today' || v === 'scheduled' ? tk : '', time: '', rf: '', ri: '1', rdays: [], endT: 'never', endD: '', endN: '5', flag: v === 'flagged', pri: 0 };
   openSheet({ kind: 'rem', step: 'edit', id: id || null, f, err: '' });
   if (!id) focusEl('rf-t');
 }
@@ -99,6 +110,7 @@ function shRemHTML(st) {
       '<div class="field"><label class="lbl" for="rf-t">Recordatorio</label><input type="text" id="rf-t" data-rf="t" maxlength="120" autocomplete="off" value="' + esc(f.t) + '"></div>' +
       '<div class="field"><label class="lbl" for="rf-n">Notas</label><textarea id="rf-n" data-rf="n" rows="2" maxlength="500">' + esc(f.n) + '</textarea></div>' +
       '<div class="field"><label class="lbl" for="rf-l">Lista</label><select id="rf-l" data-rf="l">' + rlists().map(l => '<option value="' + esc(l.id) + '"' + (l.id === f.l ? ' selected' : '') + '>' + esc(l.name) + '</option>').join('') + '</select></div>' +
+      '<div class="field"><label class="lbl" for="rf-s">Sección (opcional)</label><input type="text" id="rf-s" data-rf="s" maxlength="40" autocomplete="off" placeholder="Ej: marketing, clientes" value="' + esc(f.s) + '"></div>' +
       '<div class="field"><span class="lbl">Fecha</span><div class="toggles">' + quick.map(q => tg('rf-date', q[0], f.due === q[2], q[1])).join('') + '</div></div>' +
       '<div class="grid2"><div class="field"><label class="lbl" for="rf-due">Día</label><input type="date" id="rf-due" data-rf="due" value="' + esc(f.due) + '"></div>' +
       '<div class="field"><label class="lbl" for="rf-time">Hora (opcional)</label><input type="time" id="rf-time" data-rf="time" value="' + esc(f.time) + '"' + (f.due ? '' : ' disabled') + '></div></div>' +
@@ -118,7 +130,7 @@ function shRemHTML(st) {
 function remFormSync() {
   const st = S.sheet;
   if (!st || st.kind !== 'rem') return;
-  for (const [id, f] of [['rf-t', 't'], ['rf-n', 'n'], ['rf-l', 'l'], ['rf-due', 'due'], ['rf-time', 'time'], ['rf-ri', 'ri'], ['rf-endd', 'endD'], ['rf-endn', 'endN']]) { const el = document.getElementById(id); if (el) st.f[f] = el.value; }
+  for (const [id, f] of [['rf-t', 't'], ['rf-n', 'n'], ['rf-l', 'l'], ['rf-s', 's'], ['rf-due', 'due'], ['rf-time', 'time'], ['rf-ri', 'ri'], ['rf-endd', 'endD'], ['rf-endn', 'endN']]) { const el = document.getElementById(id); if (el) st.f[f] = el.value; }
 }
 function remSave() {
   const st = S.sheet;
@@ -152,7 +164,7 @@ function remSave() {
   }
   if (err) { sheetErr(st, err); return; }
   const lid = rlists().some(l => l.id === f.l) ? f.l : 'inbox';
-  const data = { t, n: String(f.n || '').trim().slice(0, 500), l: lid, due: due || null, time: due && isHM(f.time) ? f.time : null, rep, flag: !!f.flag, pri: clampInt(f.pri, 0, 3, 0), done: prev ? !!prev.done : false, createdAt: prev ? prev.createdAt : Date.now() };
+  const data = { t, n: String(f.n || '').trim().slice(0, 500), l: lid, s: String(f.s || '').trim().slice(0, 40), due: due || null, time: due && isHM(f.time) ? f.time : null, rep, flag: !!f.flag, pri: clampInt(f.pri, 0, 3, 0), done: prev ? !!prev.done : false, createdAt: prev ? prev.createdAt : Date.now() };
   if (prev && prev.doneAt) data.doneAt = prev.doneAt;
   const id = st.id || uid();
   const i = S.reminders.findIndex(x => x.id === id);
