@@ -15,7 +15,7 @@ function quoteHTML() {
 /* ---------- v7: retos editables ----------
    Una meta grande dividida en etapas; cada etapa tiene hábitos que marcas. Al terminar todo, derrotas al reto y ganas XP. */
 S.bosses = null; S.loaded.bosses = false;
-const MAX_BOSSES = 15, MAX_STAGES = 8, MAX_BITEMS = 12, BOSS_CAP = 60;
+const MAX_BOSSES = 999, MAX_STAGES = 20, MAX_BITEMS = 30, BOSS_CAP = 999;
 const BOSS_ICONS = ['🧥', '🏃', '💪', '🏆', '🎯', '📚', '🧠', '🥇', '⛰️', '🔥', '💰', '🎸', '🩺', '🌱'];
 
 function bossesList() { return (S.bosses && Array.isArray(S.bosses.items) ? S.bosses.items : []).filter(b => b && b.id && b.name); }
@@ -69,7 +69,7 @@ function bossSectionHTML() {
     if (won.length) html += '<p class="sh-sec">Completados <small>' + won.length + '</small></p><div class="bosses">' + won.map(bossCardHTML).join('') + '</div>';
   }
   html += '<button type="button" class="btn add-top" id="boss-new" data-act="boss-new"' + dis + '>Nuevo reto</button>' +
-    '<p class="hint">Cada hábito que marcas avanza tu reto. Al completar todas las etapas, lo logras y pasa a «Completados». Puedes tener hasta ' + MAX_BOSSES + ' retos en progreso; los completados quedan guardados aparte.</p></section>';
+    '<p class="hint">Cada hábito que marcas avanza tu reto. Al completar todas las etapas, lo logras y pasa a «Completados». Crea todos los retos que quieras; los completados quedan guardados aparte.</p></section>';
   return html;
 }
 
@@ -85,6 +85,7 @@ function shBossHTML(st) {
     (s.items || []).forEach(it => {
       body += '<button type="button" class="bitem' + (it.done ? ' done' : '') + '" data-act="boss-check" data-id="' + esc(b.id) + '" data-si="' + s.id + '" data-ii="' + it.id + '"' + (S.readonly ? ' disabled' : '') + '><span class="bchk' + (it.done ? ' on' : '') + '">' + (it.done ? '✓' : '') + '</span><span>' + esc(it.t) + '</span></button>';
     });
+    if (s.reward) body += '<p class="bst-reward' + (sd ? ' won' : '') + '">🎁 ' + (sd ? '¡Ganaste: ' : 'Premio de la etapa: ') + esc(s.reward) + (sd ? '!' : '') + '</p>';
     body += '</div>';
   });
   return sheetTop((b.icon || '🎯') + '  ' + b.name) +
@@ -102,7 +103,8 @@ function shBossEditHTML(st) {
     '<div class="bedit-stage"><div class="bedit-sth"><input type="text" class="bedit-stname" id="bf-stname-' + i + '" data-bf="stname" data-si="' + i + '" maxlength="40" placeholder="Nombre de la etapa" value="' + esc(s.name) + '">' +
       '<button type="button" class="iconbtn" data-act="bf-delstage" data-si="' + i + '" aria-label="Borrar etapa">✕</button></div>' +
       s.items.map((it, j) => '<div class="bedit-item"><input type="text" id="bf-itext-' + i + '-' + j + '" data-bf="itext" data-si="' + i + '" data-ii="' + j + '" maxlength="60" placeholder="Hábito o mini-meta" value="' + esc(it.t) + '"><button type="button" class="iconbtn" data-act="bf-delitem" data-si="' + i + '" data-ii="' + j + '" aria-label="Borrar">✕</button></div>').join('') +
-      '<button type="button" class="btn sm quiet" data-act="bf-additem" data-si="' + i + '">+ Hábito</button></div>'
+      '<button type="button" class="btn sm quiet" data-act="bf-additem" data-si="' + i + '">+ Hábito</button>' +
+      '<input type="text" class="bedit-streward" id="bf-streward-' + i + '" data-bf="streward" data-si="' + i + '" maxlength="80" placeholder="🎁 Premio al completar esta etapa (opcional)" value="' + esc(s.reward || '') + '"></div>'
   ).join('');
   return sheetTop(st.id ? 'Editar reto' : 'Nuevo reto') +
     '<form class="sh-form" data-form="sh-boss" novalidate>' +
@@ -124,6 +126,8 @@ function bossSync() {
   f.stages.forEach((s, i) => {
     const sn = document.getElementById('bf-stname-' + i);
     if (sn) s.name = sn.value;
+    const sr = document.getElementById('bf-streward-' + i);
+    if (sr) s.reward = sr.value;
     s.items.forEach((it, j) => { const el = document.getElementById('bf-itext-' + i + '-' + j); if (el) it.t = el.value; });
   });
 }
@@ -134,8 +138,8 @@ function openBoss(id) {
 function openBossEdit(id) {
   if (S.readonly || !S.loaded.bosses) return;
   const b = id ? bossesList().find(x => x.id === id) : null;
-  const f = b ? { name: b.name, reward: b.reward || '', icon: b.icon || '🎯', stages: (b.stages || []).map(s => ({ name: s.name || '', items: (s.items || []).map(it => ({ t: it.t })) })) }
-    : { name: '', reward: '', icon: BOSS_ICONS[0], stages: [{ name: '', items: [{ t: '' }] }] };
+  const f = b ? { name: b.name, reward: b.reward || '', icon: b.icon || '🎯', stages: (b.stages || []).map(s => ({ name: s.name || '', reward: s.reward || '', items: (s.items || []).map(it => ({ t: it.t })) })) }
+    : { name: '', reward: '', icon: BOSS_ICONS[0], stages: [{ name: '', reward: '', items: [{ t: '' }] }] };
   const st = { kind: 'boss', step: 'edit', id: id || null, f, err: '' };
   if (S.sheet) { S.sheet = st; renderSheet(); } else openSheet(st);
   if (!id) focusEl('bf-name');
@@ -147,7 +151,7 @@ function bossSave() {
   const f = st.f, name = String(f.name || '').trim().slice(0, 50);
   const list = bossesList().map(x => clone(x));
   let err = '';
-  const stages = f.stages.map((s, i) => ({ id: 's' + uid(), name: String(s.name || '').trim().slice(0, 40), items: s.items.map(it => ({ id: 'i' + uid(), t: String(it.t || '').trim().slice(0, 60), done: false })).filter(it => it.t) })).filter(s => s.items.length);
+  const stages = f.stages.map((s, i) => ({ id: 's' + uid(), name: String(s.name || '').trim().slice(0, 40), reward: String(s.reward || '').trim().slice(0, 80), items: s.items.map(it => ({ id: 'i' + uid(), t: String(it.t || '').trim().slice(0, 60), done: false })).filter(it => it.t) })).filter(s => s.items.length);
   if (!name) err = 'Escribe la meta del reto.';
   else if (!st.id && list.filter(x => !bossProg(x).defeated).length >= MAX_BOSSES) err = 'Puedes tener hasta ' + MAX_BOSSES + ' retos en progreso. Termina o borra alguno.';
   else if (!stages.length) err = 'Agrega al menos una etapa con un hábito.';
@@ -199,7 +203,7 @@ function v7Click(act, el, id) {
     case 'boss-del': bossDelete(el.dataset.id); return true;
     case 'boss-check': bossCheck(el.dataset.id, el.dataset.si, el.dataset.ii); return true;
     case 'bf-icon': if (st && st.kind === 'boss' && st.step === 'edit') { bossSync(); st.f.icon = el.dataset.v; renderSheet(); } return true;
-    case 'bf-addstage': if (st && st.kind === 'boss' && st.step === 'edit') { bossSync(); if (st.f.stages.length >= MAX_STAGES) { sheetErr(st, 'Hasta ' + MAX_STAGES + ' etapas.'); return true; } st.f.stages.push({ name: '', items: [{ t: '' }] }); renderSheet(); } return true;
+    case 'bf-addstage': if (st && st.kind === 'boss' && st.step === 'edit') { bossSync(); if (st.f.stages.length >= MAX_STAGES) { sheetErr(st, 'Hasta ' + MAX_STAGES + ' etapas.'); return true; } st.f.stages.push({ name: '', reward: '', items: [{ t: '' }] }); renderSheet(); } return true;
     case 'bf-delstage': if (st && st.kind === 'boss' && st.step === 'edit') { bossSync(); st.f.stages.splice(Number(el.dataset.si), 1); renderSheet(); } return true;
     case 'bf-additem': if (st && st.kind === 'boss' && st.step === 'edit') { bossSync(); const s = st.f.stages[Number(el.dataset.si)]; if (s) { if (s.items.length >= MAX_BITEMS) { sheetErr(st, 'Hasta ' + MAX_BITEMS + ' hábitos por etapa.'); return true; } s.items.push({ t: '' }); } renderSheet(); } return true;
     case 'bf-delitem': if (st && st.kind === 'boss' && st.step === 'edit') { bossSync(); const s = st.f.stages[Number(el.dataset.si)]; if (s) s.items.splice(Number(el.dataset.ii), 1); renderSheet(); } return true;
