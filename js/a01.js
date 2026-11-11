@@ -375,7 +375,17 @@ const FOODS = [
   FD('sudado_pollo', 'Sudado de pollo', 8, [110, 9, 8, 1.5, 1, 4.5, 1.3, 300], [['plato', 350]], 'a', 'guiso'),
   FD('pescado_frito', 'Pescado frito con patacón', 8, [200, 15, 15, 0.5, 2, 10, 2.5, 350], [['plato', 300]], 'a', 'mojarra'),
   FD('mondongo', 'Mondongo', 8, [70, 6, 5, 1, 1, 3, 1, 300], [['plato', 400]], 'a', 'sopa'),
-  FD('corrientazo', 'Almuerzo: arroz, lenteja y carne', 8, [150, 8, 22, 1, 3, 3.5, 1.2, 300], [['plato', 400]], 'a', 'corrientazo ejecutivo')
+  FD('corrientazo', 'Almuerzo: arroz, lenteja y carne', 8, [150, 8, 22, 1, 3, 3.5, 1.2, 300], [['plato', 400]], 'a', 'corrientazo ejecutivo'),
+  /* 9 · paquetes y snacks */
+  FD('detodito', 'DeTodito (mezcla, bolsa amarilla)', 9, [500, 7, 60, 2, 4, 26, 11, 850], [['paquete', 45], ['paquete grande', 85]], 'a', 'de todito mezcla amarillo natural normal'),
+  FD('detodito_limon', 'DeTodito limón', 9, [500, 7, 60, 2, 4, 26, 11, 900], [['paquete', 45]], 'a', 'de todito limon'),
+  FD('detodito_bbq', 'DeTodito BBQ', 9, [505, 7, 61, 4, 4, 26, 11, 880], [['paquete', 45]], 'a', 'de todito barbacoa'),
+  FD('papas_limon', 'Papas fritas de limón', 9, [535, 6.6, 52, 1, 4.4, 34, 15, 560], [['paquete', 30], ['paquete grande', 105]], 'a', 'papitas limon chips'),
+  FD('papas_margarita', 'Papas Margarita', 9, [536, 6.6, 53, 0.3, 4.4, 34, 15, 525], [['paquete', 25], ['paquete grande', 105]], 'a', 'margaritas papas fritas chips'),
+  FD('crispetas_paq', 'Crispetas de paquete (con mantequilla)', 9, [500, 9, 58, 1, 10, 28, 13, 650], [['paquete', 30]], 'a', 'palomitas popcorn crispetas maiz'),
+  FD('popetas', 'Popetas (palomitas dulces de paquete)', 9, [470, 6, 76, 30, 7, 15, 7, 420], [['paquete', 30]], 'a', 'popcorn palomitas acarameladas'),
+  FD('galletas_choco', 'Galletas de chocolate (chips)', 7, [480, 5, 64, 35, 2, 23, 11, 350], [['galleta', 12], ['paquete', 40]], 'a', 'cookies chocochips choco'),
+  FD('galletas_ojos', 'Galletas de ojo (rellenas de mermelada)', 7, [470, 5, 68, 30, 1.5, 19, 9, 300], [['galleta', 14], ['paquete', 42]], 'a', 'galletas ojo mermelada')
 ];
 /* comidas frecuentes que ya vienen con la app */
 const BUILTIN_RECIPES = [
