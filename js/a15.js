@@ -39,7 +39,18 @@ async function importData(input) {
     const data = docs[path];
     if (seg.length !== 2 || IMPORT_COLS.indexOf(seg[0]) < 0 || !/^[A-Za-z0-9_\-.~:@+]{1,200}$/.test(seg[1])) continue;
     if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
-    rows.push({ user_id: store.userId, path, data, updated_at: now });
+    let payload = data;
+    // Para contadores y retos: unir por id en vez de reemplazar, así no se borra lo que ya tienes.
+    if ((path === 'config/counters' || path === 'config/bosses') && Array.isArray(data.items)) {
+      const cur = store.docs[path];
+      const curItems = cur && Array.isArray(cur.items) ? cur.items : [];
+      const seen = {};
+      const merged = [];
+      for (const it of curItems) { if (it && it.id) { seen[it.id] = 1; merged.push(it); } }
+      for (const it of data.items) { if (it && it.id && !seen[it.id]) { seen[it.id] = 1; merged.push(it); } }
+      payload = Object.assign({}, cur || {}, data, { items: merged });
+    }
+    rows.push({ user_id: store.userId, path, data: payload, updated_at: now });
   }
   if (!rows.length) { S.dataMsg = 'El archivo no trae registros para importar.'; renderAjustes(); return; }
   S.dataMsg = 'Importando ' + rows.length + ' registros…';
