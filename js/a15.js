@@ -42,7 +42,13 @@ async function importData(input) {
     let payload = data;
     // Para contadores y retos: unir por id en vez de reemplazar, así no se borra lo que ya tienes.
     if ((path === 'config/counters' || path === 'config/bosses') && Array.isArray(data.items)) {
-      const cur = store.docs[path];
+      // Leer lo que hay AHORA en el servidor (no solo en memoria) para no sobreescribir nada.
+      let cur = store.docs[path];
+      try {
+        const got = await sb.from('docs').select('data').eq('user_id', store.userId).eq('path', path);
+        const row = got && !got.error && Array.isArray(got.data) ? got.data[0] : null;
+        if (row && row.data && typeof row.data === 'object') cur = row.data;
+      } catch (e) {}
       const curItems = cur && Array.isArray(cur.items) ? cur.items : [];
       const seen = {};
       const merged = [];
