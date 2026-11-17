@@ -123,6 +123,9 @@
  "functions": {
   "api/chat.js": {
    "maxDuration": 30
+  },
+  "api/public/jordan.js": {
+   "maxDuration": 15
   }
  }
 }
