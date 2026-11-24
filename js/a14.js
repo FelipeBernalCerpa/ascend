@@ -353,6 +353,13 @@ function subscribeAll() {
     else if (S.tab === 'progreso') renderProgreso();
     else if (S.tab === 'habitos') renderHabitos();
   });
+  store.watchDoc('config/hablists', data => {
+    S.loaded.hablists = true;
+    if (dirty.has('config/hablists')) return;
+    S.hablists = data && Array.isArray(data.items) ? data : { items: [] };
+    if (S.tab === 'hoy') renderHoy(['boost']);
+    else if (S.tab === 'habitos') renderHabitos();
+  });
   store.watchDoc('config/bosses', data => {
     S.loaded.bosses = true;
     if (dirty.has('config/bosses')) return;

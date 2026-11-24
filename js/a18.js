@@ -3,8 +3,8 @@ function openHabitEdit(k) {
   if (S.readonly || !S.loaded.habits) return;
   const h = k ? habs().find(x => x.k === k) : null;
   const tk = todayKey();
-  const f = h ? { label: h.label, freq: h.freq, days: h.days.slice(), times: String(h.times), start: h.start || '', endMode: h.end ? 'date' : 'none', end: h.end || '', remind: h.remind, note: h.note }
-    : { label: '', freq: 'daily', days: [1, 2, 3, 4, 5], times: '3', start: tk, endMode: 'none', end: '', remind: '', note: '' };
+  const f = h ? { label: h.label, freq: h.freq, days: h.days.slice(), times: String(h.times), start: h.start || '', endMode: h.end ? 'date' : 'none', end: h.end || '', remind: h.remind, note: h.note, list: h.list || '' }
+    : { label: '', freq: 'daily', days: [1, 2, 3, 4, 5], times: '3', start: tk, endMode: 'none', end: '', remind: '', note: '', list: '' };
   const st = { kind: 'habit', step: 'edit', k: k || null, f, err: '' };
   if (S.sheet) { S.sheet = st; renderSheet(); const c = $('#sheet-card'); if (c) c.scrollTop = 0; } else openSheet(st);
   if (!k) focusEl('hf-label');
@@ -17,6 +17,7 @@ function shHabitHTML(st) {
     '<form class="sh-form" data-form="sh-habit" novalidate>' +
       '<div class="field"><label class="lbl" for="hf-label">Hábito</label><input type="text" id="hf-label" data-hf="label" maxlength="60" autocomplete="off" placeholder="Leer 10 minutos" value="' + esc(f.label) + '"></div>' +
       '<div class="field"><span class="lbl">Frecuencia</span><div class="toggles">' + HFREQ.map(x => tg('hf-freq', x.k, f.freq === x.k, x.label)).join('') + '</div></div>' +
+      (hablists().length ? '<div class="field"><label class="lbl" for="hf-list">Lista por día (opcional)</label><select id="hf-list" data-hf="list"><option value="">Ninguna</option>' + hablists().map(l => '<option value="' + esc(l.id) + '"' + (l.id === f.list ? ' selected' : '') + '>' + esc(l.name) + ' · ' + esc(hablistDaysText(l.days)) + '</option>').join('') + '</select><p class="hint">Si eliges una lista, el hábito solo sale los días de esa lista.</p></div>' : '') +
       (f.freq === 'days' ? '<div class="field"><span class="lbl">Qué días</span><div class="toggles days">' + WD_ORDER.map(n => tg('hf-day', n, f.days.indexOf(n) >= 0, WD1[n], ' aria-label="' + WD[n] + '"')).join('') + '</div></div>' : '') +
       (f.freq === 'weekly' ? '<div class="field"><span class="lbl">Cuántas veces por semana</span><div class="toggles">' + [1, 2, 3, 4, 5, 6, 7].map(n => tg('hf-times', n, String(n) === String(f.times), String(n))).join('') + '</div></div>' : '') +
       (f.freq === 'monthly' ? '<div class="field"><label class="lbl" for="hf-times">Cuántas veces al mes</label><div class="amt-row"><input type="text" inputmode="numeric" id="hf-times" data-hf="times" autocomplete="off" value="' + esc(f.times) + '">' +
@@ -36,7 +37,7 @@ function shHabitHTML(st) {
 function habFormSync() {
   const st = S.sheet;
   if (!st || st.kind !== 'habit') return;
-  for (const [id, f] of [['hf-label', 'label'], ['hf-start', 'start'], ['hf-remind', 'remind'], ['hf-endd', 'end'], ['hf-note', 'note'], ['hf-times', 'times']]) { const el = document.getElementById(id); if (el) st.f[f] = el.value; }
+  for (const [id, f] of [['hf-label', 'label'], ['hf-start', 'start'], ['hf-remind', 'remind'], ['hf-endd', 'end'], ['hf-note', 'note'], ['hf-times', 'times'], ['hf-list', 'list']]) { const el = document.getElementById(id); if (el) st.f[f] = el.value; }
 }
 function habSave() {
   const st = S.sheet;
@@ -57,7 +58,7 @@ function habSave() {
   else if (f.endMode === 'date' && !isKey(f.end)) err = 'Elige la fecha en que termina.';
   else if (f.endMode === 'date' && f.end < (f.start || tk)) err = 'La fecha final debe ser después del inicio.';
   if (err) { sheetErr(st, err); return; }
-  const h = { k: st.k || 'h-' + uid(), label, freq: f.freq, days: f.freq === 'days' ? WD_ORDER.filter(d => f.days.indexOf(d) >= 0) : [], times: times || 0, start: f.start || '', end: f.endMode === 'date' ? f.end : '', remind: isHM(f.remind) ? f.remind : '', note: String(f.note || '').trim().slice(0, 200) };
+  const h = { k: st.k || 'h-' + uid(), label, freq: f.freq, days: f.freq === 'days' ? WD_ORDER.filter(d => f.days.indexOf(d) >= 0) : [], times: times || 0, start: f.start || '', end: f.endMode === 'date' ? f.end : '', remind: isHM(f.remind) ? f.remind : '', note: String(f.note || '').trim().slice(0, 200), list: hablists().some(l => l.id === f.list) ? f.list : '' };
   const i = list.findIndex(x => x.k === h.k);
   if (i >= 0) { h.createdAt = list[i].createdAt; list[i] = h; } else { h.createdAt = Date.now(); list.push(h); }
   saveHabits(list);

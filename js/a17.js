@@ -138,7 +138,7 @@ S.routines = []; S.loaded.routines = false;
 S.rlists = null; S.loaded.rlists = false;
 S.loaded.aianalysis = false;
 S.ana = { period: 'week', hperiod: 'week', busy: '', err: {}, items: [] };
-S.hab = { tab: ['rem', 'boss', 'cont'].indexOf(lsGet('ascend-htab')) >= 0 ? lsGet('ascend-htab') : 'hab', rview: 'home', flash: {}, newList: false, editList: false };
+S.hab = { tab: ['rem', 'boss', 'cont'].indexOf(lsGet('ascend-htab')) >= 0 ? lsGet('ascend-htab') : 'hab', rview: 'home', flash: {}, newList: false, editList: false, newHList: false, editHList: null, hlDays: null };
 IMPORT_COLS.push('reminders', 'routines');
 const MAX_REMS = 800, MAX_RLISTS = 30, MAX_ROUTINES = 30, MAX_ANA = 15;
 const isKey = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
@@ -160,12 +160,32 @@ const HFREQ = [
   { k: 'weekly', label: 'Veces por semana' },
   { k: 'monthly', label: 'Veces al mes' }
 ];
+/* ---------- listas por día (agrupan hábitos y deciden en qué días salen) ---------- */
+const MAX_HABLISTS = 20;
+S.hablists = null; S.loaded.hablists = false;
+function hablists() {
+  return S.hablists && Array.isArray(S.hablists.items)
+    ? S.hablists.items.filter(x => x && typeof x.id === 'string' && x.id && x.name)
+      .map(x => ({ id: x.id, name: String(x.name).slice(0, 40), days: Array.isArray(x.days) ? x.days.filter(n => Number.isInteger(n) && n >= 0 && n <= 6) : [] }))
+    : [];
+}
+function hablistOf(id) { return hablists().find(x => x.id === id) || null; }
+/* días de la semana que impone la lista del hábito (null si no tiene lista o la lista no fija días) */
+function hablistDays(h) {
+  if (!h || !h.list) return null;
+  const l = hablistOf(h.list);
+  return l && l.days.length ? l.days : null;
+}
+function hablistDaysText(days) {
+  if (!days || !days.length || days.length === 7) return 'todos los días';
+  return WD_ORDER.filter(d => days.indexOf(d) >= 0).map(d => WD1[d]).join(' ');
+}
 function habNorm(h) {
   const freq = HFREQ.some(f => f.k === h.freq) ? h.freq : 'daily';
   let days = Array.isArray(h.days) ? h.days.filter(n => Number.isInteger(n) && n >= 0 && n <= 6) : [];
   if (freq === 'days' && !days.length) days = [1, 2, 3, 4, 5];
   const times = clampInt(h.times, 1, freq === 'monthly' ? 31 : 7, freq === 'monthly' ? 4 : 3);
-  return { k: String(h.k), label: String(h.label || ''), freq, days: freq === 'days' ? days : [], times, start: isKey(h.start) ? h.start : '', end: isKey(h.end) ? h.end : '', remind: isHM(h.remind) ? h.remind : '', note: String(h.note || '').slice(0, 200), createdAt: h.createdAt || 0 };
+  return { k: String(h.k), label: String(h.label || ''), freq, days: freq === 'days' ? days : [], times, start: isKey(h.start) ? h.start : '', end: isKey(h.end) ? h.end : '', remind: isHM(h.remind) ? h.remind : '', note: String(h.note || '').slice(0, 200), list: typeof h.list === 'string' ? h.list : '', createdAt: h.createdAt || 0 };
 }
 function habs() { return habitsList().map(habNorm); }
 const habFlex = h => h.freq === 'weekly' || h.freq === 'monthly';
@@ -176,6 +196,8 @@ function habCount(h, a, b) { let n = 0; for (let k = a; k <= b; k = addDays(k, 1
 /* el día está en el plan del hábito (los de veces por semana o mes sirven cualquier día) */
 function habScheduled(h, k) {
   if (!habActive(h, k)) return false;
+  const ld = hablistDays(h);
+  if (ld && ld.indexOf(parseKey(k).getDay()) < 0) return false;
   return h.freq === 'days' ? h.days.indexOf(parseKey(k).getDay()) >= 0 : true;
 }
 /* toca ese día: los flexibles dejan de tocar cuando ya se cumplieron las veces del periodo */
@@ -344,7 +366,71 @@ function habSectionHTML() {
     '<button type="button" class="btn quiet" id="hab-coach-go" data-act="hab-coach">Ideas con IA</button></div>' +
     (!own && list.length ? '<p class="hint">Estos hábitos salen de tu objetivo. Toca uno para cambiarlo o borrarlo.</p>' : '<p class="hint">Toca un hábito para ver su calendario, su racha y editarlo. Los días de la semana se pueden marcar o desmarcar.</p>') +
     '</section>';
-  return html + coachCardHTML() + anaCardHTML('hab');
+  return html + hablistManagerHTML() + coachCardHTML() + anaCardHTML('hab');
+}
+
+/* tarjeta: listas por día (crear, editar, borrar) */
+function hablistManagerHTML() {
+  if (!S.loaded.hablists) return '';
+  const lists = hablists(), nw = S.hab.newHList;
+  let h = '<section class="card" id="card-hablists"><div class="card-h"><h2>Listas por día</h2><span class="meta">' + lists.length + '</span></div>';
+  if (lists.length) h += '<div class="hl-list">' + lists.map(l => S.hab.editHList === l.id ? hablistFormHTML(l) :
+    '<div class="hl-item"><div class="hl-info"><span class="hl-name">' + esc(l.name) + '</span><span class="hl-days">' + esc(hablistDaysText(l.days)) + '</span></div>' +
+    '<button type="button" class="btn sm quiet" data-act="hl-edit" data-v="' + esc(l.id) + '"' + (S.readonly ? ' disabled' : '') + '>Editar</button></div>').join('') + '</div>';
+  h += nw ? hablistFormHTML(null) : '<button type="button" class="btn sm quiet add-top" id="hl-new" data-act="hl-new"' + (S.readonly || lists.length >= MAX_HABLISTS ? ' disabled' : '') + '>Nueva lista</button>';
+  h += '<p class="hint">Crea una lista (ej. «Martes», «Fin de semana»), elige sus días, y asigna hábitos a ella al editarlos. Esos hábitos solo saldrán los días de la lista.</p></section>';
+  return h;
+}
+function hablistFormHTML(l) {
+  const editing = !!l;
+  const days = S.hab.hlDays || (l ? l.days.slice() : []);
+  const armed = S.confirmDel === 'hl-del:' + (l ? l.id : '');
+  const tg = n => '<button type="button" class="tgl" data-act="hl-day" data-v="' + n + '" aria-pressed="' + (days.indexOf(n) >= 0) + '" aria-label="' + esc(WD[n]) + '">' + WD1[n] + '</button>';
+  return '<form class="form hl-form" data-form="' + (editing ? 'hl-edit' : 'hl-new') + '" novalidate>' +
+    '<div class="field"><label class="lbl" for="hl-name">Nombre de la lista</label><input type="text" id="hl-name" data-draft maxlength="40" autocomplete="off" placeholder="Ej: Martes, Fin de semana" value="' + esc(draft('hl-name', l ? l.name : '')) + '"></div>' +
+    '<div class="field"><span class="lbl">Qué días sale</span><div class="toggles days">' + WD_ORDER.map(tg).join('') + '</div></div>' +
+    '<p class="form-err">' + esc(S.formErr.hl || '') + '</p>' +
+    '<div class="row"><button type="submit" class="btn sm" id="hl-save">' + (editing ? 'Guardar lista' : 'Crear lista') + '</button>' +
+    '<button type="button" class="btn sm quiet" data-act="hl-cancel">Cancelar</button>' +
+    (editing ? '<button type="button" class="btn sm ' + (armed ? 'danger' : 'quiet') + '" data-act="hl-del" data-v="' + esc(l.id) + '">' + (armed ? 'Toca otra vez: sus hábitos quedan sin lista' : 'Borrar lista') + '</button>' : '') +
+    '</div></form>';
+}
+function hablistSave(editing) {
+  if (S.readonly || !S.loaded.hablists) return;
+  const n = $('#hl-name');
+  const name = String(n ? n.value : '').trim().slice(0, 40);
+  const days = (S.hab.hlDays || []).filter(x => Number.isInteger(x) && x >= 0 && x <= 6);
+  const cur = hablists().map(x => Object.assign({}, x));
+  const editId = editing ? S.hab.editHList : null;
+  let err = '';
+  if (!name) err = 'Escribe el nombre.';
+  else if (cur.some(x => norm(x.name) === norm(name) && x.id !== editId)) err = 'Ya tienes una lista con ese nombre.';
+  else if (!editing && cur.length >= MAX_HABLISTS) err = 'Puedes tener hasta ' + MAX_HABLISTS + ' listas.';
+  if (err) { S.formErr.hl = err; renderHabitos(); focusEl('hl-name'); return; }
+  if (editing) {
+    const l = cur.find(x => x.id === editId);
+    if (l) { l.name = name; l.days = days; }
+    S.hab.editHList = null;
+  } else {
+    cur.push({ id: 'hl-' + uid(), name, days });
+    S.hab.newHList = false;
+  }
+  S.hablists = { items: cur };
+  saver.queue('config/hablists', clone(S.hablists), 100);
+  S.hab.hlDays = null; S.formErr.hl = ''; delete S.drafts['hl-name'];
+  renderHabitos();
+}
+function hablistDelete(id) {
+  if (S.readonly || !S.loaded.hablists) return;
+  confirmOrDo('hl-del:' + id, () => {
+    S.hablists = { items: hablists().filter(x => x.id !== id) };
+    saver.queue('config/hablists', clone(S.hablists), 100);
+    /* los hábitos de esa lista quedan sin lista (vuelven a salir todos los días según su frecuencia) */
+    const touched = habitsList().some(x => x.list === id);
+    if (touched) saveHabits(habitsList().map(x => (x.list === id ? Object.assign({}, x, { list: '' }) : x)));
+    S.hab.editHList = null; S.hab.hlDays = null; S.confirmDel = null;
+    renderHabitos();
+  }, renderHabitos);
 }
 
 /* hoja: detalle del hábito con calendario del mes */

@@ -85,7 +85,7 @@ function submitGuide(form) {
 function saveHabits(items) {
   S.habits = { items: items.slice(0, MAX_HABITS).map(x => {
     const o = { k: x.k, label: x.label };
-    for (const f of ['freq', 'times', 'start', 'end', 'remind', 'note', 'createdAt']) if (x[f] != null && x[f] !== '' && x[f] !== 0) o[f] = x[f];
+    for (const f of ['freq', 'times', 'start', 'end', 'remind', 'note', 'list', 'createdAt']) if (x[f] != null && x[f] !== '' && x[f] !== 0) o[f] = x[f];
     if (Array.isArray(x.days) && x.days.length && x.freq === 'days') o.days = x.days.slice();
     if (o.freq === 'daily') delete o.freq;
     if (!o.freq || o.freq === 'days') delete o.times;

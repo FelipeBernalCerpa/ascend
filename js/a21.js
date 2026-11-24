@@ -149,6 +149,11 @@ function v4Click(act, el, id) {
     case 'rl-cancel': S.hab.newList = false; S.hab.editList = false; S.hab.listColor = null; delete S.drafts['rl-name']; renderHabitos(); return true;
     case 'rl-color': { const n = $('#rl-name'); if (n) S.drafts['rl-name'] = n.value; S.hab.listColor = el.dataset.v; renderHabitos(); return true; }
     case 'rl-del': rlistDelete(); return true;
+    case 'hl-new': S.hab.newHList = true; S.hab.editHList = null; S.hab.hlDays = []; S.formErr.hl = ''; S.confirmDel = null; delete S.drafts['hl-name']; renderHabitos(); focusEl('hl-name'); return true;
+    case 'hl-edit': { const l = hablistOf(el.dataset.v); S.hab.editHList = el.dataset.v; S.hab.newHList = false; S.hab.hlDays = l ? l.days.slice() : []; S.formErr.hl = ''; S.confirmDel = null; delete S.drafts['hl-name']; renderHabitos(); focusEl('hl-name'); return true; }
+    case 'hl-cancel': S.hab.newHList = false; S.hab.editHList = null; S.hab.hlDays = null; S.formErr.hl = ''; S.confirmDel = null; delete S.drafts['hl-name']; renderHabitos(); return true;
+    case 'hl-day': { const nm = $('#hl-name'); if (nm) S.drafts['hl-name'] = nm.value; const n = parseInt(el.dataset.v, 10); const d = (S.hab.hlDays || []).slice(); const j = d.indexOf(n); if (j >= 0) d.splice(j, 1); else d.push(n); S.hab.hlDays = d; renderHabitos(); return true; }
+    case 'hl-del': { const nm = $('#hl-name'); if (nm) S.drafts['hl-name'] = nm.value; hablistDelete(el.dataset.v); return true; }
     case 'rf-rep': if (st && st.kind === 'rem') { remFormSync(); st.f.rf = el.dataset.v === 'no' ? '' : el.dataset.v; if (st.f.rf && !st.f.due) st.f.due = todayKey(); st.err = ''; renderSheet(); } return true;
     case 'rf-day': if (st && st.kind === 'rem') { remFormSync(); const n = Number(el.dataset.v), j = st.f.rdays.indexOf(n); if (j >= 0) st.f.rdays.splice(j, 1); else st.f.rdays.push(n); renderSheet(); } return true;
     case 'rf-end': if (st && st.kind === 'rem') { remFormSync(); st.f.endT = el.dataset.v; if (st.f.endT === 'date' && !st.f.endD) st.f.endD = addDays(st.f.due || todayKey(), 30); renderSheet(); } return true;
@@ -235,6 +240,8 @@ function v4Submit(kind) {
     case 'rem-quick': remQuickAdd(); return true;
     case 'rl-new': rlistSave(false); return true;
     case 'rl-edit': rlistSave(true); return true;
+    case 'hl-new': hablistSave(false); return true;
+    case 'hl-edit': hablistSave(true); return true;
     case 'coach': { const t = $('#coach-in'); anaRun('coach', t ? t.value : ''); return true; }
     default: return false;
   }

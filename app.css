@@ -618,3 +618,11 @@ details.cat summary small{font-family:var(--f-mono);color:var(--muted);font-weig
 .bst-reward{font-size:12.5px;color:var(--muted);margin:6px 0 0;padding:6px 8px;background:var(--sunk);border-radius:var(--r-sm)}
 .bst-reward.won{color:var(--accent);font-weight:600;background:rgba(55,208,138,.12)}
 .bedit-streward{width:100%;margin-top:8px;font-size:13px}
+
+/* listas por día de hábitos */
+.hl-list{display:flex;flex-direction:column;margin:2px 0 8px}
+.hl-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 2px;border-bottom:1px solid var(--line)}
+.hl-info{display:flex;flex-direction:column;gap:2px;min-width:0}
+.hl-name{font-weight:600;color:var(--fg)}
+.hl-days{font-family:var(--f-mono);font-size:.82em;color:var(--muted);letter-spacing:.06em}
+.hl-form{margin:6px 0 2px}
